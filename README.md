@@ -1,14 +1,18 @@
-# Codex Pulse 1.0.5
+# Codex Pulse 1.0.6
 
-当前源码在 1.0.5 基础上调整界面：浅灰背景、白色圆角分组、淡蓝渐变工作台，以及带蓝色下划线的文字导航。额度采用双列卡片，本机 Token 使用嵌套浅灰卡片，账户与订阅信息收纳于工作台。托盘使用圆角进度条表示剩余额度：正常白色，低于 20% 橙色，低于 10% 红色。首次正常运行默认开启自启动。默认页面无需滚动，长列表分页。更新前，请从托盘菜单完全退出旧进程，再替换 EXE；设置保留。详见 `CHANGELOG.md`。
+1.0.6 更新界面：浅灰背景、白色圆角分组、淡蓝渐变工作台，以及带蓝色下划线的文字导航。额度采用双列卡片，本机 Token 使用嵌套浅灰卡片，账户与订阅信息收纳于工作台。托盘使用细边框竖向进度条表示剩余额度：正常白色，低于 20% 橙色，低于 10% 红色。首次正常运行默认开启自启动。默认页面无需滚动，长列表分页。更新前，请从托盘菜单完全退出旧进程，再替换 EXE；设置保留。详见 `CHANGELOG.md`。
 
 一个轻量、原生、中文界面的 Windows Codex 用量工具。**只需要 `CodexPulse.exe` 即可运行**，无需安装 Python、Node.js、.NET、Java、WebView2 或 VC++ Redistributable。
 
 面向 **Windows 10 1703 及以上 / Windows 11，x64**。ARM64 Windows 11 可尝试系统的 x64 模拟，未验证；不提供 32 位版本。
 
+## 下载
+
+前往 [GitHub Releases](https://github.com/brianuuuu/codex-pulse/releases/latest)，下载 **CodexPulse-v1.0.6-windows-x64.zip**，解压后双击 `CodexPulse.exe`。Release 附带 SHA-256 校验文件；GitHub 自动生成的 Source code 下载项只包含源码。
+
 ## 源码仓库
 
-当前仓库对应 **1.0.5**，包含此前的界面精简、融合标题栏、圆角托盘进度条、低额度变色和默认自启动功能。可执行文件与构建缓存不提交到 Git。
+当前仓库对应 **1.0.6**，包含紧凑界面、融合标题栏、细边框竖向托盘进度条、低额度变色和默认自启动功能。可执行文件在 Release 中发布，构建缓存不提交到 Git。
 
 在 Windows 上克隆到你的开发目录：
 
@@ -171,7 +175,7 @@ VALIDATION.md       验证结果与范围
 dist/               本地编译输出，已忽略
 ```
 
-删除程序前先关闭开机启动并退出，再删除 EXE 即可；如需清除偏好设置，可删除 `%LOCALAPPDATA%\CodexPulse`。EXE 未作代码签名；会话中提供的发行 ZIP 包含 `SHA256SUMS.txt` 校验文件。
+删除程序前先关闭开机启动并退出，再删除 EXE 即可；如需清除偏好设置，可删除 `%LOCALAPPDATA%\CodexPulse`。EXE 未作代码签名；发行 ZIP 包含 `SHA256SUMS.txt` 校验文件，Release 另附 ZIP 的校验文件。
 
 ## 参考与许可
 

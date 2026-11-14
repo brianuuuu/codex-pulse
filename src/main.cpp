@@ -403,7 +403,7 @@ std::wstring controlTip(int id) {
         return statusLabel() + L"\n" + sourceLabel() + L"\n" + timestamp(snap.quota.observed) +
                L"\n点击查看详情";
     if (id == ID_ABOUT)
-        return L"关于与说明 · 1.0.5";
+        return L"关于与说明 · 1.0.6";
     wchar_t label[256]{};
     auto it = controls.find(id);
     if (it != controls.end())
@@ -1028,7 +1028,7 @@ void refresh() {
 }
 std::wstring report() {
     std::wostringstream out;
-    out << L"Codex Pulse 1.0.5\r\n"
+    out << L"Codex Pulse 1.0.6\r\n"
         << (demo ? L"演示数据\r\n" : L"") << sourceLabel() << L"\r\n"
         << L"状态：" << wide(snap.status) << L"\r\n"
         << L"额度采样：" << timestamp(snap.quota.observed) << L"\r\n";
@@ -1210,7 +1210,7 @@ void command(int id) {
     }
     if (id == ID_ABOUT) {
         MessageBoxW(window,
-                    L"Codex Pulse 1.0.5\n\n只读本机登录与用量，仅向 chatgpt.com "
+                    L"Codex Pulse 1.0.6\n\n只读本机登录与用量，仅向 chatgpt.com "
                     L"查询额度。\n无遥测，不上传会话内容。\n\n账户额度与本机 Token "
                     L"统计口径不同。\n缓存输入已包含在输入中，推理输出已包含在输出中。\n独立工具，与 OpenAI "
                     L"无隶属关系。",
