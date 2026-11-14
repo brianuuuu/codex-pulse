@@ -2,19 +2,19 @@
 #include "platform.hpp"
 
 namespace pulse {
-// Native-size rounded progress track. Fill represents the least remaining
-// quota. No terminal or digits; three dots distinguish unknown from empty.
+// Native-size vertical progress track. Bottom-up fill represents the least
+// remaining quota. Three vertical dots distinguish unknown from empty.
 inline void drawTrayIcon(Gdiplus::Graphics &g, int size, double usage) {
     using namespace Gdiplus;
     g.Clear(Color(0, 0, 0, 0));
     // A native-size tray glyph needs opaque, grid-aligned strokes. Only the
-    // fractional progress column uses transparency; the outline never does.
+    // fractional progress row uses transparency; the outline never does.
     g.SetSmoothingMode(SmoothingModeNone);
     g.SetPixelOffsetMode(PixelOffsetModeHalf);
     const float scale = size / 16.f;
-    const int stroke = std::max(2, static_cast<int>(std::lround(scale * 1.8f)));
-    const int margin = static_cast<int>(std::lround(size * .1875f));
-    const int radius = std::max(2, static_cast<int>(std::lround(scale * 2)));
+    const int stroke = std::max(1, static_cast<int>(std::lround(scale)));
+    const int margin = static_cast<int>(std::lround(size * .25f));
+    const int radius = std::max(1, static_cast<int>(std::lround(scale * 1.5f)));
     auto roundedPath = [](GraphicsPath &path, RectF r, float radius) {
         const float d = std::min({radius * 2, r.Width, r.Height});
         if (d <= 0) {
@@ -28,8 +28,8 @@ inline void drawTrayIcon(Gdiplus::Graphics &g, int size, double usage) {
         path.CloseFigure();
     };
     GraphicsPath track(FillModeAlternate);
-    roundedPath(track, RectF(0, margin, size, size - 2 * margin), static_cast<float>(radius));
-    roundedPath(track, RectF(stroke, margin + stroke, size - 2 * stroke, size - 2 * (margin + stroke)),
+    roundedPath(track, RectF(margin, 0, size - 2 * margin, size), static_cast<float>(radius));
+    roundedPath(track, RectF(margin + stroke, stroke, size - 2 * (margin + stroke), size - 2 * stroke),
                 static_cast<float>(std::max(0, radius - stroke)));
     const bool available = std::isfinite(usage) && usage >= 0;
     const Color tone = available && usage > 90   ? Color(255, 69, 58)
@@ -38,23 +38,23 @@ inline void drawTrayIcon(Gdiplus::Graphics &g, int size, double usage) {
     SolidBrush ink(tone);
     g.FillPath(&ink, &track);
     const int inset = stroke + std::max(1, static_cast<int>(std::lround(scale * .5f)));
-    const Rect inner(inset, margin + inset, size - 2 * inset, size - 2 * (margin + inset));
+    const Rect inner(margin + inset, inset, size - 2 * (margin + inset), size - 2 * inset);
     if (!available) {
         const int dot = std::max(1, static_cast<int>(std::lround(scale))), gap = dot;
         const int start = (size - 3 * dot - 2 * gap) / 2;
         for (int i = 0; i < 3; ++i)
-            g.FillRectangle(&ink, start + i * (dot + gap), (size - dot) / 2, dot, dot);
+            g.FillRectangle(&ink, (size - dot) / 2, start + i * (dot + gap), dot, dot);
     } else {
         // A rectangular fill keeps visible area proportional even at very low
         // remaining quota. Preserve fractional percentages without a 1px floor.
-        const double width = inner.Width * (100 - std::clamp(usage, 0.0, 100.0)) / 100;
-        const int whole = static_cast<int>(std::floor(width));
+        const double height = inner.Height * (100 - std::clamp(usage, 0.0, 100.0)) / 100;
+        const int whole = static_cast<int>(std::floor(height));
         if (whole > 0)
-            g.FillRectangle(&ink, inner.X, inner.Y, whole, inner.Height);
-        const int alpha = static_cast<int>(std::lround((width - whole) * 255));
-        if (alpha > 0 && whole < inner.Width) {
+            g.FillRectangle(&ink, inner.X, inner.GetBottom() - whole, inner.Width, whole);
+        const int alpha = static_cast<int>(std::lround((height - whole) * 255));
+        if (alpha > 0 && whole < inner.Height) {
             SolidBrush edge(Color(static_cast<BYTE>(alpha), tone.GetR(), tone.GetG(), tone.GetB()));
-            g.FillRectangle(&edge, inner.X + whole, inner.Y, 1, inner.Height);
+            g.FillRectangle(&edge, inner.X, inner.GetBottom() - whole - 1, inner.Width, 1);
         }
     }
 }

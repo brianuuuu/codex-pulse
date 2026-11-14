@@ -57,8 +57,9 @@ int main() {
             check(correctColor && opaque > 0, "outline and fill use the remaining-quota threshold color");
             check(visible >= size * 1.5, "empty rounded progress bar outline remains readable");
             check(opaque < size * size * .7, "rounded progress bar has no solid colored tile");
-            check(maxx - minx + 1 >= size * .9 && maxy - miny + 1 >= size * .5 - 1,
-                  "rounded progress bar uses the native slot with a horizontal silhouette");
+            check(maxy - miny + 1 >= size * .9 && maxx - minx + 1 >= size * .45 &&
+                      maxx - minx + 1 <= size * .6,
+                  "progress bar uses the native slot with a slim vertical silhouette");
             check(minx >= 0 && maxx < size && miny >= 0 && maxy < size,
                   "rounded progress bar stays inside icon");
             if (used >= 0) {
@@ -73,12 +74,12 @@ int main() {
             check(bitmap.Save(name.c_str(), &png, nullptr) == Ok, "save actual tray raster");
         }
         check(unknownInk > emptyInk, "unavailable data differs from zero remaining quota");
-        auto sample = [&](double used) {
+        auto sample = [&](double used, bool topHalfOnly = false) {
             Bitmap bitmap(size, size, PixelFormat32bppARGB);
             { Graphics g(&bitmap); drawTrayIcon(g, size, used); }
             int alpha = 0;
             bool binaryAlpha = true;
-            for (int y = 0; y < size; ++y)
+            for (int y = 0; y < (topHalfOnly ? size / 2 : size); ++y)
                 for (int x = 0; x < size; ++x) {
                     Color color;
                     bitmap.GetPixel(x, y, &color);
@@ -90,6 +91,8 @@ int main() {
         const auto empty = sample(100), full = sample(0);
         check(empty.second && full.second, "outline and full fill have no blurry translucent edges");
         check(full.first > empty.first, "progress track has usable interior pixels");
+        check(sample(75, true).first == sample(100, true).first,
+              "remaining quota fills from the bottom, leaving the upper half empty at 25 percent");
         for (double remaining : {.1, .5, 1., 9.9, 10., 19.9, 20., 25., 37.5, 50., 62.3, 75., 99.9}) {
             const double drawn = static_cast<double>(sample(100 - remaining).first - empty.first) /
                                  (full.first - empty.first);
