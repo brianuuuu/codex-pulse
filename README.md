@@ -1,4 +1,4 @@
-# Codex Pulse 1.0.6
+# Codex Pulse 1.0.7
 
 1.0.6 更新界面：浅灰背景、白色圆角分组、淡蓝渐变工作台，以及带蓝色下划线的文字导航。额度采用双列卡片，本机 Token 使用嵌套浅灰卡片，账户与订阅信息收纳于工作台。托盘使用细边框竖向进度条表示剩余额度：正常白色，低于 20% 橙色，低于 10% 红色。首次正常运行默认开启自启动。默认页面无需滚动，长列表分页。更新前，请从托盘菜单完全退出旧进程，再替换 EXE；设置保留。详见 `CHANGELOG.md`。
 
@@ -8,11 +8,11 @@
 
 ## 下载
 
-前往 [GitHub Releases](https://github.com/brianuuuu/codex-pulse/releases/latest)，下载 **CodexPulse-v1.0.6-windows-x64.zip**，解压后双击 `CodexPulse.exe`。Release 附带 SHA-256 校验文件；GitHub 自动生成的 Source code 下载项只包含源码。
+前往 [GitHub Releases](https://github.com/brianuuuu/codex-pulse/releases/latest)，下载 **CodexPulse-v1.0.7-windows-x64.zip**，解压后双击 `CodexPulse.exe`。Release 附带 SHA-256 校验文件；GitHub 自动生成的 Source code 下载项只包含源码。
 
 ## 源码仓库
 
-当前仓库对应 **1.0.6**，包含紧凑界面、融合标题栏、细边框竖向托盘进度条、低额度变色和默认自启动功能。可执行文件在 Release 中发布，构建缓存不提交到 Git。
+当前仓库对应 **1.0.7**，包含紧凑界面、融合标题栏、细边框竖向托盘进度条、低额度变色和默认自启动功能。1.0.7 仅保留一份标准 MIT `LICENSE`。可执行文件在 Release 中发布，构建缓存不提交到 Git。
 
 在 Windows 上克隆到你的开发目录：
 
@@ -165,7 +165,8 @@ Windows 专用测试源码：`tests/platform_tests.cpp`（认证读取与路径�
 src/                原生 Windows 程序、数据统计、托盘与界面
 assets/             图标、Windows 清单及版本资源
 tests/              核心、Windows 平台、渲染与 UI 检查
-vendor/             随源码分发的依赖与第三方许可
+vendor/             随源码分发的依赖
+LICENSE             MIT 许可证
 screenshots/        演示界面及托盘图标
 build.bat           Windows 编译脚本
 build.sh            Linux 交叉编译脚本
@@ -185,6 +186,6 @@ dist/               本地编译输出，已忽略
 - [openai/codex](https://github.com/openai/codex)：认证目录、direct keyring 命名和会话日志数据结构。
 - [hwchen/keyring-rs](https://github.com/hwchen/keyring-rs)：Windows 凭据目标名与 UTF-16 密码存储格式。
 
-仓库创建时的 Apache-2.0 许可证保留于 `LICENSE`。本次导入的 Codex Pulse 1.0.5 实现（`src/`、`assets/`、`tests/` 及构建脚本）沿用原有 MIT 许可，版权与许可声明见 `LICENSE-MIT`。nlohmann/json 为 MIT；静态 GCC 运行库采用对应许可及 GCC Runtime Library Exception，完整文本位于 `vendor/`。
+本项目采用 MIT 许可，见根目录的 `LICENSE`。仓库和发行 ZIP 均只保留这一份许可证。nlohmann/json 同样采用 MIT，其版权声明保留于 `LICENSE` 和第三方源码文件头。
 
 本工具独立于 OpenAI；额度接口不是稳定的公共 API，未来变化可能需要更新解析代码。

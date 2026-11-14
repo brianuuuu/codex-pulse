@@ -321,7 +321,7 @@ inline HttpResult fetchUsage(const Auth &a) {
         r.error = "登录凭据格式异常，请重新登录 Codex。";
         return r;
     }
-    Internet session(WinHttpOpen(L"CodexPulse/1.0.6", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+    Internet session(WinHttpOpen(L"CodexPulse/1.0.7", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
     if (!session.h) {
         r.error = "无法初始化 Windows 网络服务。";
