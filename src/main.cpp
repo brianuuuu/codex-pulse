@@ -34,7 +34,8 @@ std::atomic<bool> stopping{false};
 std::mutex resultMutex;
 UINT taskbarCreated = 0;
 HICON windowIconLarge = nullptr, windowIconSmall = nullptr;
-int trayRenderSize = 0, trayRenderUsage = -2;
+int trayRenderSize = 0;
+double trayRenderUsage = -2;
 std::wstring trayTooltip;
 time_t countdownMinute = 0;
 HICON trayIcon = nullptr;
@@ -808,10 +809,13 @@ void updateTray() {
     const UINT dpi = taskbar ? GetDpiForWindow(taskbar) : GetDpiForSystem();
     const int iconSize = std::clamp(GetSystemMetricsForDpi(SM_CXSMICON, dpi ? dpi : 96), 16, 64);
     double used = -1;
+    const Window *limitingWindow = nullptr;
     for (const auto &q : snap.quota.windows)
-        if (q.valid())
-            used = std::max(used, q.used);
-    const int usage = used < 0 ? -1 : static_cast<int>(std::ceil(used));
+        if (q.valid() && q.used > used) {
+            used = q.used;
+            limitingWindow = &q;
+        }
+    const double usage = used;
     const bool iconChanged = !trayIcon || iconSize != trayRenderSize || usage != trayRenderUsage;
     HICON next = iconChanged ? createTrayIcon(iconSize, usage) : trayIcon;
     if (!next)
@@ -823,9 +827,11 @@ void updateTray() {
     n.uCallbackMessage = MSG_TRAY;
     n.hIcon = next;
     std::wstring tip =
-        used < 0 ? L"Codex Pulse · 暂无额度数据" : L"Codex Pulse · 剩余额度 " + percent(100 - used);
+        used < 0 ? L"Codex Pulse · 暂无额度数据" : L"Codex Pulse · 最少剩余 " + percent(100 - used, 1);
+    if (limitingWindow)
+        tip += L"\n对应额度：" + windowName(*limitingWindow);
     for (size_t i = 0; i < std::min<size_t>(2, snap.quota.windows.size()); ++i)
-        tip += L"\n" + windowName(snap.quota.windows[i]) + L"：已用 " + percent(snap.quota.windows[i].used);
+        tip += L"\n" + windowName(snap.quota.windows[i]) + L"：已用 " + percent(snap.quota.windows[i].used, 1);
     tip += L"\n" + sourceLabel();
     tip.resize(std::min<size_t>(tip.size(), 127));
     wcsncpy_s(n.szTip, tip.c_str(), _TRUNCATE);

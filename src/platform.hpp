@@ -443,11 +443,11 @@ inline std::wstring shortCount(int64_t v) {
     swprintf(b, 64, scaled >= 100 ? L"%.1f %ls" : L"%.2f %ls", scaled, suffixes[unit]);
     return b;
 }
-inline std::wstring percent(double p) {
+inline std::wstring percent(double p, int precision = 0) {
     if (p < 0)
         return L"—";
     wchar_t b[40];
-    swprintf(b, 40, L"%.0f%%", p);
+    swprintf(b, 40, L"%.*f%%", std::clamp(precision, 0, 2), p);
     return b;
 }
 inline std::wstring duration(int64_t s) {

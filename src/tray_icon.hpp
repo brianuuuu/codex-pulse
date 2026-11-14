@@ -4,49 +4,61 @@
 namespace pulse {
 // Native-size rounded progress track. Fill represents the least remaining
 // quota. No terminal or digits; three dots distinguish unknown from empty.
-inline void drawTrayIcon(Gdiplus::Graphics &g, int size, int usage) {
+inline void drawTrayIcon(Gdiplus::Graphics &g, int size, double usage) {
     using namespace Gdiplus;
     g.Clear(Color(0, 0, 0, 0));
-    g.SetSmoothingMode(SmoothingModeAntiAlias);
+    // A native-size tray glyph needs opaque, grid-aligned strokes. Only the
+    // fractional progress column uses transparency; the outline never does.
+    g.SetSmoothingMode(SmoothingModeNone);
     g.SetPixelOffsetMode(PixelOffsetModeHalf);
-    const float scale = size / 16.f, stroke = std::max(2.f, std::round(scale * 1.8f));
-    const float margin = std::round(size * .1875f);
+    const float scale = size / 16.f;
+    const int stroke = std::max(2, static_cast<int>(std::lround(scale * 1.8f)));
+    const int margin = static_cast<int>(std::lround(size * .1875f));
+    const int radius = std::max(2, static_cast<int>(std::lround(scale * 2)));
     auto roundedPath = [](GraphicsPath &path, RectF r, float radius) {
         const float d = std::min({radius * 2, r.Width, r.Height});
+        if (d <= 0) {
+            path.AddRectangle(r);
+            return;
+        }
         path.AddArc(r.X, r.Y, d, d, 180, 90);
         path.AddArc(r.GetRight() - d, r.Y, d, d, 270, 90);
         path.AddArc(r.GetRight() - d, r.GetBottom() - d, d, d, 0, 90);
         path.AddArc(r.X, r.GetBottom() - d, d, d, 90, 90);
         path.CloseFigure();
     };
-    GraphicsPath track;
-    // A smaller corner radius lengthens the straight edges inside Windows' fixed tray slot.
-    roundedPath(track, RectF(stroke / 2, margin + stroke / 2, size - stroke, size - 2 * margin - stroke),
-                2.25f * scale);
-    const Color tone = usage > 90   ? Color(255, 69, 58)
-                       : usage > 80 ? Color(255, 159, 10)
+    GraphicsPath track(FillModeAlternate);
+    roundedPath(track, RectF(0, margin, size, size - 2 * margin), static_cast<float>(radius));
+    roundedPath(track, RectF(stroke, margin + stroke, size - 2 * stroke, size - 2 * (margin + stroke)),
+                static_cast<float>(std::max(0, radius - stroke)));
+    const bool available = std::isfinite(usage) && usage >= 0;
+    const Color tone = available && usage > 90   ? Color(255, 69, 58)
+                       : available && usage > 80 ? Color(255, 159, 10)
                                     : Color(255, 255, 255);
-    Pen outline(tone, stroke);
-    g.DrawPath(&outline, &track);
     SolidBrush ink(tone);
-    const float inset = stroke + std::max(.75f, scale * .75f);
-    const RectF inner(inset, margin + inset, size - 2 * inset, size - 2 * (margin + inset));
-    if (usage < 0) {
-        const float dot = std::max(1.f, scale), gap = dot;
-        const float start = (size - 3 * dot - 2 * gap) / 2;
+    g.FillPath(&ink, &track);
+    const int inset = stroke + std::max(1, static_cast<int>(std::lround(scale * .5f)));
+    const Rect inner(inset, margin + inset, size - 2 * inset, size - 2 * (margin + inset));
+    if (!available) {
+        const int dot = std::max(1, static_cast<int>(std::lround(scale))), gap = dot;
+        const int start = (size - 3 * dot - 2 * gap) / 2;
         for (int i = 0; i < 3; ++i)
-            g.FillEllipse(&ink, start + i * (dot + gap), (size - dot) / 2, dot, dot);
+            g.FillRectangle(&ink, start + i * (dot + gap), (size - dot) / 2, dot, dot);
     } else {
-        const int remaining = 100 - std::clamp(usage, 0, 100);
-        if (remaining > 0) {
-            const float width = std::max(1.f, inner.Width * remaining / 100.f);
-            GraphicsPath fill;
-            roundedPath(fill, RectF(inner.X, inner.Y, width, inner.Height), inner.Height / 2);
-            g.FillPath(&ink, &fill);
+        // A rectangular fill keeps visible area proportional even at very low
+        // remaining quota. Preserve fractional percentages without a 1px floor.
+        const double width = inner.Width * (100 - std::clamp(usage, 0.0, 100.0)) / 100;
+        const int whole = static_cast<int>(std::floor(width));
+        if (whole > 0)
+            g.FillRectangle(&ink, inner.X, inner.Y, whole, inner.Height);
+        const int alpha = static_cast<int>(std::lround((width - whole) * 255));
+        if (alpha > 0 && whole < inner.Width) {
+            SolidBrush edge(Color(static_cast<BYTE>(alpha), tone.GetR(), tone.GetG(), tone.GetB()));
+            g.FillRectangle(&edge, inner.X + whole, inner.Y, 1, inner.Height);
         }
     }
 }
-inline HICON createTrayIcon(int size, int usage) {
+inline HICON createTrayIcon(int size, double usage) {
     Gdiplus::Bitmap bitmap(size, size, PixelFormat32bppARGB);
     Gdiplus::Graphics g(&bitmap);
     drawTrayIcon(g, size, usage);

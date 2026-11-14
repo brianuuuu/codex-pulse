@@ -18,6 +18,8 @@ int main() {
     check(shortCount(65120000) == L"65.12 M", "retain useful precision below 100M");
     check(shortCount(1234000000) == L"1.23 B", "billions avoid overflowing card");
     check(shortCount(999999999) == L"1.00 B", "rounding promotes suffix");
+    check(percent(37.6, 1) == L"37.6%", "tooltip keeps fractional percentages");
+    check(percent(37.6) == L"38%", "existing page percentage formatting stays unchanged");
     CLSID png;
     CLSIDFromString(L"{557cf406-1a04-11d3-9a73-0000f81ef32e}", &png);
     for (int size : {16, 20, 24, 32, 48, 64}) {
@@ -71,6 +73,29 @@ int main() {
             check(bitmap.Save(name.c_str(), &png, nullptr) == Ok, "save actual tray raster");
         }
         check(unknownInk > emptyInk, "unavailable data differs from zero remaining quota");
+        auto sample = [&](double used) {
+            Bitmap bitmap(size, size, PixelFormat32bppARGB);
+            { Graphics g(&bitmap); drawTrayIcon(g, size, used); }
+            int alpha = 0;
+            bool binaryAlpha = true;
+            for (int y = 0; y < size; ++y)
+                for (int x = 0; x < size; ++x) {
+                    Color color;
+                    bitmap.GetPixel(x, y, &color);
+                    alpha += color.GetA();
+                    binaryAlpha &= color.GetA() == 0 || color.GetA() == 255;
+                }
+            return std::make_pair(alpha, binaryAlpha);
+        };
+        const auto empty = sample(100), full = sample(0);
+        check(empty.second && full.second, "outline and full fill have no blurry translucent edges");
+        check(full.first > empty.first, "progress track has usable interior pixels");
+        for (double remaining : {.1, .5, 1., 9.9, 10., 19.9, 20., 25., 37.5, 50., 62.3, 75., 99.9}) {
+            const double drawn = static_cast<double>(sample(100 - remaining).first - empty.first) /
+                                 (full.first - empty.first);
+            check(std::abs(drawn - remaining / 100) < .001,
+                  "visible progress area matches exact remaining quota within 0.1 percentage point");
+        }
     }
     // Exercise the minute-only refresh policy without waiting for real wall-clock boundaries.
     HINSTANCE inst = GetModuleHandleW(nullptr);
@@ -228,7 +253,12 @@ int main() {
     check(IsZoomed(window), "double-click title maximizes");
     SendMessageW(window, WM_NCLBUTTONDBLCLK, HTCAPTION, 0);
     check(!IsZoomed(window), "double-click title restores");
+    snap.quota.windows[1].used = 62.4;
     updateTray();
+    check(std::abs(trayRenderUsage - 62.4) < .0001, "tray does not ceil fractional usage before drawing");
+    check(trayTooltip.find(L"最少剩余 37.6%") != std::wstring::npos &&
+              trayTooltip.find(L"对应额度：" + windowName(snap.quota.windows[1])) != std::wstring::npos,
+          "tray tooltip names the limiting quota and its fractional remaining value");
     command(ID_MINIMIZE);
     check(!IsWindowVisible(window), "integrated minimize respects tray preference");
     showWindow();
