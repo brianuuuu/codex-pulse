@@ -9,10 +9,10 @@ inline void drawTrayIcon(Gdiplus::Graphics &g, int size, int usage) {
     g.Clear(Color(0, 0, 0, 0));
     g.SetSmoothingMode(SmoothingModeAntiAlias);
     g.SetPixelOffsetMode(PixelOffsetModeHalf);
-    const float scale = size / 16.f, stroke = std::max(1.f, std::round(scale));
-    const float margin = std::round(size * .25f);
-    auto pill = [](GraphicsPath &path, RectF r) {
-        const float d = std::min(r.Width, r.Height);
+    const float scale = size / 16.f, stroke = std::max(2.f, std::round(scale * 1.8f));
+    const float margin = std::round(size * .1875f);
+    auto roundedPath = [](GraphicsPath &path, RectF r, float radius) {
+        const float d = std::min({radius * 2, r.Width, r.Height});
         path.AddArc(r.X, r.Y, d, d, 180, 90);
         path.AddArc(r.GetRight() - d, r.Y, d, d, 270, 90);
         path.AddArc(r.GetRight() - d, r.GetBottom() - d, d, d, 0, 90);
@@ -20,14 +20,16 @@ inline void drawTrayIcon(Gdiplus::Graphics &g, int size, int usage) {
         path.CloseFigure();
     };
     GraphicsPath track;
-    pill(track, RectF(stroke / 2, margin + stroke / 2, size - stroke, size - 2 * margin - stroke));
+    // A smaller corner radius lengthens the straight edges inside Windows' fixed tray slot.
+    roundedPath(track, RectF(stroke / 2, margin + stroke / 2, size - stroke, size - 2 * margin - stroke),
+                2.25f * scale);
     const Color tone = usage > 90   ? Color(255, 69, 58)
                        : usage > 80 ? Color(255, 159, 10)
                                     : Color(255, 255, 255);
     Pen outline(tone, stroke);
     g.DrawPath(&outline, &track);
     SolidBrush ink(tone);
-    const float inset = stroke + std::max(1.f, scale * .75f);
+    const float inset = stroke + std::max(.75f, scale * .75f);
     const RectF inner(inset, margin + inset, size - 2 * inset, size - 2 * (margin + inset));
     if (usage < 0) {
         const float dot = std::max(1.f, scale), gap = dot;
@@ -39,7 +41,7 @@ inline void drawTrayIcon(Gdiplus::Graphics &g, int size, int usage) {
         if (remaining > 0) {
             const float width = std::max(1.f, inner.Width * remaining / 100.f);
             GraphicsPath fill;
-            pill(fill, RectF(inner.X, inner.Y, width, inner.Height));
+            roundedPath(fill, RectF(inner.X, inner.Y, width, inner.Height), inner.Height / 2);
             g.FillPath(&ink, &fill);
         }
     }

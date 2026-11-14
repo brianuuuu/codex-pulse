@@ -13,7 +13,9 @@ constexpr int ID_OVERVIEW = 100, ID_ACTIVITY = 101, ID_SETTINGS = 102, ID_REFRES
               ID_NOTIFY = 114, ID_HOME = 115, ID_AUTOSTART = 116, ID_RESET_HOME = 117, ID_STATUS = 118,
               ID_ABOUT = 119, ID_STATS = 120, ID_MODELS = 121, ID_SESSIONS = 122, ID_PREV = 123,
               ID_NEXT = 124, ID_MINIMIZE = 125, ID_MAXIMIZE = 126, ID_CLOSE = 127;
-constexpr int BODY_TOP = 76, FOOTER = 64, QUOTA_TOP = BODY_TOP + 34, QUOTA_STEP = 116, RESET_ROW = 75;
+constexpr int DEFAULT_WIDTH = 480, DEFAULT_HEIGHT = 520;
+constexpr int TITLE_HEIGHT = 44, BODY_TOP = 78, FOOTER = 44;
+constexpr int QUOTA_TOP = BODY_TOP + 144, QUOTA_STEP = 126, RESET_ROW = 76;
 int activityView = 0, activityPage = 0;
 HWND tooltip = nullptr;
 HFONT tooltipFont = nullptr;
@@ -52,7 +54,7 @@ struct Snapshot {
 Snapshot snap, pending;
 unsigned pendingGeneration = 0;
 struct Palette {
-    Color bg, card, text, muted, line, accent, soft, warning;
+    Color bg, card, text, muted, line, accent, soft, warning, inset;
 };
 Palette colors;
 std::map<int, HWND> controls;
@@ -73,6 +75,10 @@ int px(float x) {
 std::pair<float, float> sizeDip() {
     RECT r{};
     GetClientRect(window, &r);
+    // Keep card and navigation widths stable when a page needs the native scrollbar.
+    // The bar occupies the existing right gutter, outside the cards and controls.
+    if (GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL)
+        r.right += GetSystemMetricsForDpi(SM_CXVSCROLL, GetDpiForWindow(window));
     return {r.right / dpiScale, r.bottom / dpiScale};
 }
 bool systemDark() {
@@ -84,10 +90,12 @@ bool systemDark() {
 void updateColors() {
     bool dark = settings.theme == 2 || (settings.theme == 0 && systemDark());
     colors =
-        dark ? Palette{Color(22, 29, 40), Color(34, 45, 61),    Color(233, 240, 242), Color(154, 170, 181),
-                       Color(47, 59, 68), Color(112, 173, 255), Color(30, 49, 78),    Color(241, 182, 91)}
-             : Palette{Color(243, 246, 251), Color(255, 255, 255), Color(30, 44, 53),    Color(104, 122, 134),
-                       Color(229, 235, 239), Color(40, 120, 240),  Color(231, 240, 255), Color(187, 112, 30)};
+        dark ? Palette{Color(23, 27, 36), Color(35, 41, 54), Color(237, 240, 247), Color(164, 173, 190),
+                       Color(52, 61, 78), Color(124, 168, 255), Color(39, 55, 83), Color(241, 182, 91),
+                       Color(28, 33, 46)}
+             : Palette{Color(245, 245, 249), Color(255, 255, 255), Color(24, 28, 38), Color(119, 122, 133),
+                       Color(229, 232, 240), Color(48, 103, 216), Color(234, 241, 253), Color(180, 108, 25),
+                       Color(248, 248, 252)};
     BOOL value = dark;
     DwmSetWindowAttribute(window, 20, &value, sizeof value);
     COLORREF border = RGB(colors.line.GetR(), colors.line.GetG(), colors.line.GetB());
@@ -96,7 +104,7 @@ void updateColors() {
     for (auto [id, h] : controls)
         InvalidateRect(h, nullptr, FALSE);
 }
-void rounded(Graphics &g, RectF r, float radius, Color color) {
+void rounded(Graphics &g, RectF r, float radius, Color color, const Color *gradientEnd = nullptr) {
     if (r.Width <= 0 || r.Height <= 0)
         return;
     float d = std::min({radius * 2, r.Width, r.Height});
@@ -106,12 +114,10 @@ void rounded(Graphics &g, RectF r, float radius, Color color) {
     p.AddArc(r.GetRight() - d, r.GetBottom() - d, d, d, 0, 90);
     p.AddArc(r.X, r.GetBottom() - d, d, d, 90, 90);
     p.CloseFigure();
-    if (color.GetValue() == colors.card.GetValue()) {
-        const bool dark = colors.bg.GetR() < 80;
-        LinearGradientBrush frost(PointF(r.X, r.Y), PointF(r.X, r.GetBottom()),
-                                  dark ? Color(39, 52, 70) : Color(255, 255, 255),
-                                  dark ? Color(30, 41, 57) : Color(246, 249, 253));
-        g.FillPath(&frost, &p);
+    if (gradientEnd) {
+        LinearGradientBrush gradient(PointF(r.X, r.Y), PointF(r.GetRight(), r.GetBottom()), color,
+                                     *gradientEnd);
+        g.FillPath(&gradient, &p);
     } else {
         SolidBrush b(color);
         g.FillPath(&b, &p);
@@ -134,7 +140,7 @@ void fittedNumber(Graphics &g, const std::wstring &value, float x, float y, floa
     format.SetFormatFlags(StringFormatFlagsNoWrap);
     format.SetLineAlignment(StringAlignmentCenter);
     format.SetTrimming(StringTrimmingNone);
-    float fontSize = 25.f;
+    float fontSize = 22.f;
     Font initial(uiFont.c_str(), fontSize, FontStyleBold, UnitPixel);
     RectF measured;
     g.MeasureString(value.c_str(), -1, &initial, PointF(0, 0), &format, &measured);
@@ -150,7 +156,7 @@ void label(Graphics &g, const std::wstring &name, const std::wstring &value, flo
     text(g, value, width * .50f, y, width * .50f - 40, 28, 13, valueColor, false, StringAlignmentFar);
 }
 void section(Graphics &g, const std::wstring &s, float y, float w) {
-    text(g, s, 24, y, w - 48, 24, 12, colors.muted, true);
+    text(g, s, 24, y, w - 48, 24, 14, colors.text, true);
 }
 std::wstring sourceLabel() {
     if (demo)
@@ -166,67 +172,82 @@ std::wstring statusLabel() {
         return L"正在后台刷新…";
     return wide(snap.status);
 }
-void quotaCard(Graphics &g, const Window &q, float y, float width) {
-    rounded(g, RectF(24, y, width - 48, 104), 14, colors.card);
-    text(g, windowName(q), 42, y + 12, width - 210, 26, 14, colors.text, true);
+RectF quotaBounds(size_t index, float width) {
+    const float cardWidth = (width - 92) / 2;
+    return RectF(40 + static_cast<float>(index % 2) * (cardWidth + 12),
+                 QUOTA_TOP + static_cast<float>(index / 2) * QUOTA_STEP, cardWidth, 116);
+}
+void quotaCard(Graphics &g, const Window &q, const RectF &r) {
+    const float x = r.X + 12, y = r.Y, width = r.Width - 24;
+    rounded(g, r, 10, colors.inset);
+    text(g, windowName(q), x, y + 6, width, 20, 12, colors.text, true);
     Color tone = q.used >= 90 ? colors.warning : colors.accent;
-    text(g, L"已用", width - 148, y + 17, 32, 18, 10, colors.muted);
-    text(g, percent(q.used), width - 116, y + 10, 74, 32, 25, tone, true, StringAlignmentFar);
-    rounded(g, RectF(42, y + 53, width - 84, 5), 2.5f, colors.line);
+    text(g, percent(q.used), x, y + 26, width - 30, 32, 26, tone, true);
+    text(g, L"已用", r.GetRight() - 42, y + 36, 30, 18, 9, colors.muted, false, StringAlignmentFar);
+    rounded(g, RectF(x, y + 64, width, 5), 2.5f, colors.line);
     if (q.valid() && q.used > 0)
-        rounded(g, RectF(42, y + 53, (width - 84) * static_cast<float>(q.used / 100), 5), 2.5f, tone);
-    drawGlyph(g, Glyph::Clock, 42, y + RESET_ROW + 2, 15, colors.muted);
-    const auto reset =
-        q.reset ? timestamp(q.reset) + L"  ·  " + duration(q.reset - std::time(nullptr)) : L"—";
-    text(g, reset, 65, y + RESET_ROW, width - 107, 22, 11, colors.muted);
+        rounded(g, RectF(x, y + 64, width * static_cast<float>(q.used / 100), 5), 2.5f, tone);
+    text(g, q.reset ? L"重置 " + timestamp(q.reset) : L"重置时间未提供", x, y + RESET_ROW, width,
+         18, 10, colors.muted);
+    text(g, q.reset ? duration(q.reset - std::time(nullptr)) : L"—", x, y + RESET_ROW + 18,
+         width, 18, 10, colors.muted);
 }
 float drawOverview(Graphics &g, float w) {
-    float y = BODY_TOP + 8;
-    section(g, L"额度", y, w);
-    y = QUOTA_TOP;
+    float y = BODY_TOP + 12;
+    const Color heroEnd = colors.bg.GetR() < 80 ? Color(39, 58, 91) : Color(222, 235, 255);
+    rounded(g, RectF(24, y, w - 48, 86), 16, colors.card, &heroEnd);
+    text(g, L"用量工作台", 40, y + 6, 140, 20, 12, colors.accent, true);
+    const auto state = demo                           ? L"演示数据"
+                       : busy                         ? L"正在刷新"
+                       : snap.cached                  ? L"在线缓存"
+                       : snap.quota.source == "local" ? L"本地快照"
+                       : snap.online                  ? L"已连接"
+                                                      : L"未连接";
+    text(g, L"●  " + std::wstring(state), w - 160, y + 6, 120, 20, 10,
+         snap.cached ? colors.warning : colors.muted, false, StringAlignmentFar);
+    const auto today = localTime(std::time(nullptr));
+    const auto date = std::to_wstring(today.tm_mon + 1) + L"月" + std::to_wstring(today.tm_mday) + L"日";
+    const wchar_t *weekdays[] = {L"星期日", L"星期一", L"星期二", L"星期三", L"星期四", L"星期五", L"星期六"};
+    text(g, date, 40, y + 26, 140, 30, 22, colors.text, true);
+    text(g, weekdays[today.tm_wday], 188, y + 30, 80, 26, 13, colors.muted);
+    text(g, wide(snap.account.empty() ? "未连接账户" : snap.account), 40, y + 62, (w - 80) * .52f,
+         18, 10.5f, colors.muted);
+    const auto credits = snap.quota.unlimited ? L"∞" : snap.quota.creditBalance.empty()
+                                                        ? L"—" : wide(snap.quota.creditBalance);
+    const auto plan = wide(snap.quota.plan.empty() ? "—" : snap.quota.plan);
+    text(g, plan + L"  ·  " + credits + L" Credits", w * .53f, y + 62, w * .47f - 40, 18,
+         10.5f, colors.muted, false, StringAlignmentFar);
+    y += 98;
+    const int rows = std::max(1, static_cast<int>((snap.quota.windows.size() + 1) / 2));
+    const float quotaHeight = snap.quota.windows.empty() ? 126.f : 34.f + rows * QUOTA_STEP;
+    rounded(g, RectF(24, y, w - 48, quotaHeight), 16, colors.card);
+    text(g, L"账户额度", 40, y + 6, 120, 22, 14, colors.text, true);
+    text(g, L"采样 " + timestamp(snap.quota.observed), w - 210, y + 7, 170, 20, 9, colors.muted,
+         false, StringAlignmentFar);
     if (snap.quota.windows.empty()) {
-        rounded(g, RectF(24, y, w - 48, 96), 14, colors.card);
-        drawGlyph(g, Glyph::Cloud, 42, y + 19, 22, colors.muted);
-        text(g, L"暂无额度数据", 76, y + 14, w - 118, 28, 14, colors.text, true);
-        text(g, wide(snap.status), 42, y + 48, w - 84, 32, 11, colors.muted, false, StringAlignmentNear,
-             true);
-        y += 108;
-    } else
-        for (const auto &q : snap.quota.windows) {
-            quotaCard(g, q, y, w);
-            y += QUOTA_STEP;
-        }
-    section(g, L"Token · 本机", y, w);
-    y += 30;
-    float gap = 10, cw = (w - 68) / 3;
+        rounded(g, RectF(40, y + 34, w - 80, 80), 10, colors.inset);
+        drawGlyph(g, Glyph::Cloud, 52, y + 46, 18, colors.muted);
+        text(g, L"暂无额度数据", 80, y + 40, w - 132, 26, 12, colors.text, true);
+        text(g, wide(snap.status), 52, y + 72, w - 104, 34, 11, colors.muted, false,
+             StringAlignmentNear, true);
+    } else {
+        for (size_t i = 0; i < snap.quota.windows.size(); ++i)
+            quotaCard(g, snap.quota.windows[i], quotaBounds(i, w));
+    }
+    y += quotaHeight + 12;
+    rounded(g, RectF(24, y, w - 48, 100), 16, colors.card);
+    text(g, L"本机 Token", 40, y + 6, w - 80, 22, 14, colors.text, true);
+    float gap = 10, cw = (w - 100) / 3;
     const std::array<std::pair<std::wstring, int64_t>, 3> cards{{{L"今天", snap.activity.today.total},
                                                                  {L"7 天", snap.activity.week.total},
                                                                  {L"30 天", snap.activity.month.total}}};
     for (size_t i = 0; i < cards.size(); ++i) {
-        float x = 24 + static_cast<float>(i) * (cw + gap);
-        rounded(g, RectF(x, y, cw, 80), 12, colors.card);
-        text(g, cards[i].first, x + 14, y + 10, cw - 28, 20, 11, colors.muted);
-        fittedNumber(g, shortCount(cards[i].second), x + 14, y + 34, cw - 28, 32);
+        float x = 40 + static_cast<float>(i) * (cw + gap);
+        rounded(g, RectF(x, y + 34, cw, 54), 10, colors.inset);
+        text(g, cards[i].first, x + 10, y + 38, cw - 20, 18, 10, colors.muted);
+        fittedNumber(g, shortCount(cards[i].second), x + 10, y + 57, cw - 20, 27);
     }
-    y += 94;
-    rounded(g, RectF(24, y, w - 48, 104), 14, colors.card);
-    const float right = w * .52f;
-    drawGlyph(g, Glyph::User, 42, y + 20, 17, colors.muted);
-    text(g, wide(snap.account.empty() ? "未连接" : snap.account), 69, y + 12, right - 85, 32, 12,
-         colors.text);
-    drawGlyph(g, Glyph::Star, right, y + 20, 17, colors.muted);
-    text(g, wide(snap.quota.plan.empty() ? "—" : snap.quota.plan), right + 27, y + 12, w - right - 67, 32, 12,
-         colors.text);
-    drawGlyph(g, Glyph::Coins, 42, y + 69, 17, colors.muted);
-    text(g,
-         (snap.quota.unlimited               ? L"∞"
-          : snap.quota.creditBalance.empty() ? L"—"
-                                             : wide(snap.quota.creditBalance)) +
-             std::wstring(L" Credits"),
-         69, y + 61, right - 85, 32, 12, colors.text);
-    drawGlyph(g, Glyph::History, right, y + 69, 17, colors.muted);
-    text(g, timestamp(snap.quota.observed), right + 27, y + 61, w - right - 67, 32, 12, colors.text);
-    y += 120;
+    y += 112;
     if (snap.quota.limitReached) {
         text(g, L"额度已达上限", 28, y, w - 56, 24, 11, colors.warning);
         y += 32;
@@ -285,7 +306,7 @@ float drawActivity(Graphics &g, float w) {
         return h - FOOTER - 4;
     }
     float chartHeight = std::clamp(h - FOOTER - y - 246, 84.f, 138.f);
-    rounded(g, RectF(24, y, w - 48, chartHeight), 14, colors.card);
+    rounded(g, RectF(24, y, w - 48, chartHeight), 16, colors.card);
     std::array<int64_t, 7> totals{};
     std::array<std::string, 7> days{};
     int64_t peak = 1;
@@ -310,7 +331,7 @@ float drawActivity(Graphics &g, float w) {
     y += chartHeight + 14;
     section(g, L"今日 Token", y, w);
     y += 28;
-    rounded(g, RectF(24, y, w - 48, 158), 14, colors.card);
+    rounded(g, RectF(24, y, w - 48, 158), 16, colors.card);
     label(g, L"输入", count(snap.activity.today.input), y + 8, w, colors.text);
     label(g, L"    缓存输入", count(snap.activity.today.cached), y + 34, w, colors.muted);
     label(g, L"输出", count(snap.activity.today.output), y + 60, w, colors.text);
@@ -356,25 +377,25 @@ void updateControlText() {
 float drawSettings(Graphics &g, float w) {
     float y = BODY_TOP + 8;
     section(g, L"偏好", y, w);
-    y += 30;
-    rounded(g, RectF(24, y, w - 48, 156), 14, colors.card);
-    y += 176;
+    y += 28;
+    rounded(g, RectF(24, y, w - 48, 128), 16, colors.card);
+    y += 142;
     section(g, L"数据目录", y, w);
-    y += 30;
-    rounded(g, RectF(24, y, w - 48, 100), 14, colors.card);
+    y += 28;
+    rounded(g, RectF(24, y, w - 48, 84), 16, colors.card);
     auto home = settings.home.empty() ? defaultHome() : fs::path(settings.home);
-    text(g, home.wstring(), 40, y + 10, w - 80, 39, 12, colors.text, false, StringAlignmentNear, true);
-    y += 118;
-    rounded(g, RectF(24, y, w - 48, 56), 14, colors.card);
-    drawGlyph(g, Glyph::Cloud, 40, y + 17, 21, colors.muted);
+    text(g, home.wstring(), 40, y + 8, w - 80, 30, 11, colors.text, false, StringAlignmentNear, true);
+    y += 96;
+    rounded(g, RectF(24, y, w - 48, 44), 16, colors.card);
+    drawGlyph(g, Glyph::Cloud, 40, y + 12, 20, colors.muted);
     text(g,
          demo                             ? L"演示"
          : snap.authSource == "auth.json" ? L"文件登录"
          : snap.authSource == "Windows 凭据管理器"
              ? L"系统凭据"
              : wide(snap.authSource.empty() ? "未连接" : snap.authSource),
-         74, y + 12, w - 115, 32, 12, colors.text);
-    return y + 72;
+         72, y + 8, w - 112, 28, 12, colors.text);
+    return y + 56;
 }
 std::wstring controlTip(int id) {
     if (id == ID_STATUS)
@@ -483,21 +504,22 @@ void layout() {
         else
             SetWindowPos(ctl, nullptr, nx, ny, nw, nh, flags);
     };
-    move(ID_OVERVIEW, w - 272, 22, 32, 32);
-    move(ID_ACTIVITY, w - 232, 22, 32, 32);
-    move(ID_SETTINGS, w - 192, 22, 32, 32);
-    move(ID_MINIMIZE, w - 136, 22, 32, 32);
-    move(ID_MAXIMIZE, w - 96, 22, 32, 32);
-    move(ID_CLOSE, w - 56, 22, 32, 32);
-    move(ID_STATUS, 112, h - 50, 36, 36);
-    move(ID_REFRESH, 24, h - 50, 36, 36);
-    move(ID_COPY, 68, h - 50, 36, 36);
-    move(ID_ABOUT, w - 104, h - 50, 36, 36);
-    move(ID_MORE, w - 60, h - 50, 36, 36);
+    const float navWidth = (w - 48) / 3;
+    move(ID_OVERVIEW, 24, TITLE_HEIGHT, navWidth, BODY_TOP - TITLE_HEIGHT);
+    move(ID_ACTIVITY, 24 + navWidth, TITLE_HEIGHT, navWidth, BODY_TOP - TITLE_HEIGHT);
+    move(ID_SETTINGS, 24 + navWidth * 2, TITLE_HEIGHT, navWidth, BODY_TOP - TITLE_HEIGHT);
+    move(ID_MINIMIZE, w - 124, 8, 28, 28);
+    move(ID_MAXIMIZE, w - 88, 8, 28, 28);
+    move(ID_CLOSE, w - 52, 8, 28, 28);
+    move(ID_STATUS, 104, h - 38, 32, 32);
+    move(ID_REFRESH, 24, h - 38, 32, 32);
+    move(ID_COPY, 64, h - 38, 32, 32);
+    move(ID_ABOUT, w - 100, h - 38, 32, 32);
+    move(ID_MORE, w - 60, h - 38, 32, 32);
     const float tile = (w - 96) / 3;
     auto setting = [&](int id, int col, int row) {
-        float y = BODY_TOP + 50 + row * 68 - scrollY;
-        move(id, 40 + col * (tile + 8), y, tile, 60, tab == 2 && y >= BODY_TOP && y + 60 <= h - FOOTER);
+        float y = BODY_TOP + 44 + row * 56 - scrollY;
+        move(id, 40 + col * (tile + 8), y, tile, 50, tab == 2 && y >= BODY_TOP && y + 50 <= h - FOOTER);
     };
     setting(ID_THEME, 0, 0);
     setting(ID_INTERVAL, 1, 0);
@@ -505,7 +527,7 @@ void layout() {
     setting(ID_TRAY, 0, 1);
     setting(ID_NOTIFY, 1, 1);
     setting(ID_AUTOSTART, 2, 1);
-    const float folderY = BODY_TOP + 300 - scrollY;
+    const float folderY = BODY_TOP + 248 - scrollY;
     move(ID_HOME, 40, folderY, 36, 32, tab == 2 && folderY >= BODY_TOP && folderY + 32 <= h - FOOTER);
     move(ID_RESET_HOME, 84, folderY, 36, 32, tab == 2 && folderY >= BODY_TOP && folderY + 32 <= h - FOOTER);
     move(ID_STATS, w - 148, BODY_TOP + 4, 32, 30, tab == 1);
@@ -541,9 +563,14 @@ void invalidateBody() {
 }
 void invalidateStatus() {
     auto [w, h] = sizeDip();
-    (void)h;
-    RECT r{px(64), px(52), px(w - 284), px(66)};
+    RECT r{px(176), px(10), px(w - 134), px(32)};
     InvalidateRect(window, &r, FALSE);
+    if (tab == 0) {
+        RECT hero{px(w - 160), px(std::max(float(BODY_TOP), BODY_TOP + 18.f - scrollY)),
+                  px(w - 40), px(std::min(h - FOOTER, BODY_TOP + 38.f - scrollY))};
+        if (hero.bottom > hero.top)
+            InvalidateRect(window, &hero, FALSE);
+    }
     auto it = controls.find(ID_STATUS);
     if (it != controls.end())
         InvalidateRect(it->second, nullptr, FALSE);
@@ -559,9 +586,10 @@ void updateCountdowns(time_t now) {
     for (size_t i = 0; i < snap.quota.windows.size(); ++i) {
         if (!snap.quota.windows[i].reset)
             continue;
-        float top = static_cast<float>(QUOTA_TOP) + static_cast<float>(i) * QUOTA_STEP + RESET_ROW - scrollY;
-        RECT r{px(42), px(std::max(static_cast<float>(BODY_TOP), top)), px(w - 42),
-               px(std::min(h - FOOTER, top + 24))};
+        const auto bounds = quotaBounds(i, w);
+        float top = bounds.Y + RESET_ROW - scrollY;
+        RECT r{px(bounds.X + 12), px(std::max(static_cast<float>(BODY_TOP), top)), px(bounds.GetRight() - 12),
+               px(std::min(h - FOOTER, top + 36))};
         if (r.bottom > r.top)
             InvalidateRect(window, &r, FALSE);
     }
@@ -578,23 +606,23 @@ void paint() {
     Bitmap image(cr.right, cr.bottom, PixelFormat32bppPARGB);
     Graphics g(&image);
     g.Clear(colors.bg);
-    LinearGradientBrush background(Point(0, 0), Point(0, cr.bottom), colors.bg,
-                                   colors.bg.GetR() < 80 ? Color(18, 26, 38) : Color(235, 241, 249));
-    g.FillRectangle(&background, 0, 0, cr.right, cr.bottom);
     g.SetSmoothingMode(SmoothingModeAntiAlias);
     g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
     g.ScaleTransform(dpiScale, dpiScale);
     auto [w, h] = sizeDip();
-    rounded(g, RectF(24, 24, 28, 28), 9, colors.accent);
-    text(g, L">_", 24, 24, 28, 27, 15, Color(255, 255, 255), true, StringAlignmentCenter);
-    text(g, L"Codex Pulse", 64, 20, w - 348, 34, 18, colors.text, true);
-    const auto state = demo                           ? L"DEMO"
+    SolidBrush chrome(colors.card);
+    g.FillRectangle(&chrome, 0.f, 0.f, w, float(BODY_TOP));
+    g.FillRectangle(&chrome, 0.f, h - FOOTER, w, float(FOOTER));
+    rounded(g, RectF(24, 10, 24, 24), 8, colors.accent);
+    text(g, L">_", 24, 10, 24, 23, 13, Color(255, 255, 255), true, StringAlignmentCenter);
+    text(g, L"Codex Pulse", 58, 8, w - 196, 28, 14, colors.text, true);
+    const auto state = demo                           ? L""
                        : snap.cached                  ? L"缓存"
                        : snap.quota.source == "local" ? L"本地"
                        : snap.quota.windows.empty()   ? L"未连接"
                                                       : L"";
     if (*state)
-        text(g, state, 66, 52, w - 348, 14, 8, demo || snap.cached ? colors.warning : colors.muted);
+        text(g, state, 176, 10, w - 310, 22, 9, demo || snap.cached ? colors.warning : colors.muted);
     auto saved = g.Save();
     g.SetClip(RectF(0, BODY_TOP, w, std::max(1.f, h - BODY_TOP - FOOTER)));
     g.TranslateTransform(0, static_cast<float>(-scrollY));
@@ -624,32 +652,24 @@ void drawButton(const DRAWITEMSTRUCT *d) {
     bool active = (id >= ID_OVERVIEW && id <= ID_SETTINGS && id - ID_OVERVIEW == tab) ||
                   (id >= ID_STATS && id <= ID_SESSIONS && id - ID_STATS == activityView) || id == ID_REFRESH;
     bool pressed = (d->itemState & ODS_SELECTED) != 0, disabled = (d->itemState & ODS_DISABLED) != 0;
+    bool focusVisible = (d->itemState & ODS_FOCUS) && !(d->itemState & ODS_NOFOCUSRECT);
     bool settingsButton = id >= ID_THEME && id <= ID_RESET_HOME;
-    // Match the opaque surface behind this native child, including its gradient.
+    bool navigation = id >= ID_OVERVIEW && id <= ID_SETTINGS;
+    // Match the opaque surface behind this native child.
     // Parent painting excludes children, so the button must paint its own corners.
     RECT position{};
     GetWindowRect(d->hwndItem, &position);
     MapWindowPoints(nullptr, window, reinterpret_cast<POINT *>(&position), 2);
     float originY = position.top / dpiScale;
-    float surfaceTop = 0, surfaceHeight = sizeDip().second;
-    const bool dark = colors.bg.GetR() < 80;
-    Color start = colors.bg, end = dark ? Color(18, 26, 38) : Color(235, 241, 249);
-    if (settingsButton) {
-        bool directory = id == ID_HOME || id == ID_RESET_HOME;
-        surfaceTop = BODY_TOP + (directory ? 244.f : 38.f) - scrollY;
-        surfaceHeight = directory ? 100.f : 156.f;
-        start = dark ? Color(39, 52, 70) : Color(255, 255, 255);
-        end = dark ? Color(30, 41, 57) : Color(246, 249, 253);
-    }
-    LinearGradientBrush surface(PointF(0, surfaceTop - originY),
-                                PointF(0, surfaceTop + surfaceHeight - originY), start, end);
-    g.FillRectangle(&surface, 0.f, 0.f, w, h);
-    if (pressed || active || hoveredControl == id || settingsButton)
+    const bool onChrome = originY < BODY_TOP || originY >= sizeDip().second - FOOTER;
+    // Clear every pixel before antialiasing; a filled rectangle leaves translucent edge pixels.
+    g.Clear(settingsButton || onChrome ? colors.card : colors.bg);
+    if (!navigation && (pressed || active || hoveredControl == id || focusVisible || settingsButton))
         rounded(g, RectF(1, 1, w - 2, h - 3), 9,
                 id == ID_CLOSE && (pressed || hoveredControl == id) ? Color(225, 58, 73)
                 : pressed                                           ? colors.line
-                : active || hoveredControl == id                    ? colors.soft
-                                                                    : colors.bg);
+                : active || hoveredControl == id || focusVisible    ? colors.soft
+                                                                    : colors.inset);
     Glyph glyph = Glyph::Info;
     switch (id) {
     case ID_MINIMIZE:
@@ -729,10 +749,19 @@ void drawButton(const DRAWITEMSTRUCT *d) {
     if (id == ID_STATUS)
         tone = snap.online && !snap.cached ? colors.accent : colors.warning;
     bool tile = id >= ID_THEME && id <= ID_AUTOSTART && id != ID_HOME;
-    float iconSize = tile ? 23.f : id >= ID_MINIMIZE ? 16.f : 19.f;
-    drawGlyph(g, glyph, (w - iconSize) / 2, tile ? 9.f : (h - iconSize) / 2, iconSize, tone);
+    float iconSize = tile ? 20.f : id >= ID_MINIMIZE ? 14.f : 19.f;
+    if (navigation) {
+        const wchar_t *labels[] = {L"概览", L"明细", L"设置"};
+        text(g, labels[id - ID_OVERVIEW], 0, 0, w, h - 8, 13,
+             active ? colors.text : hoveredControl == id || focusVisible ? colors.accent : colors.muted,
+             active, StringAlignmentCenter);
+        if (active || focusVisible)
+            rounded(g, RectF(w / 2 - 11, h - 6, 22, 3), 1.5f, active ? colors.accent : colors.muted);
+    } else {
+        drawGlyph(g, glyph, (w - iconSize) / 2, tile ? 6.f : (h - iconSize) / 2, iconSize, tone);
+    }
     if (id == ID_THEME || id == ID_INTERVAL)
-        text(g, id == ID_THEME ? themeLabel() : std::to_wstring(settings.interval / 60) + L" min", 4, h - 24,
+        text(g, id == ID_THEME ? themeLabel() : std::to_wstring(settings.interval / 60) + L" min", 4, h - 22,
              w - 8, 20, 10, colors.muted, false, StringAlignmentCenter);
     else if (tile) {
         bool enabled = id == ID_ONLINE   ? settings.online
@@ -742,17 +771,6 @@ void drawButton(const DRAWITEMSTRUCT *d) {
         rounded(g, RectF(w / 2 - 10, h - 20, 20, 10), 5, enabled ? colors.accent : colors.line);
         SolidBrush knob(Color(255, 255, 255));
         g.FillEllipse(&knob, w / 2 + (enabled ? 2.f : -8.f), h - 18, 6.f, 6.f);
-    }
-    if (d->itemState & ODS_FOCUS) {
-        Pen p(colors.accent, 1);
-        GraphicsPath focus;
-        float radius = 6, d = radius * 2;
-        focus.AddArc(3.f, 3.f, d, d, 180.f, 90.f);
-        focus.AddArc(w - 3 - d, 3.f, d, d, 270.f, 90.f);
-        focus.AddArc(w - 3 - d, h - 3 - d, d, d, 0.f, 90.f);
-        focus.AddArc(3.f, h - 3 - d, d, d, 90.f, 90.f);
-        focus.CloseFigure();
-        g.DrawPath(&p, &focus);
     }
     Graphics screen(d->hDC);
     screen.DrawImage(&buffer, static_cast<int>(d->rcItem.left), static_cast<int>(d->rcItem.top));
@@ -1320,7 +1338,7 @@ LRESULT CALLBACK proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         GetClientRect(h, &area);
         if ((GetWindowLongPtrW(h, GWL_STYLE) & WS_VSCROLL) && client.x >= area.right)
             return HTVSCROLL;
-        return client.y < px(BODY_TOP - 10) ? HTCAPTION : HTCLIENT;
+        return client.y < px(TITLE_HEIGHT) ? HTCAPTION : HTCLIENT;
     }
     case WM_CREATE: {
         window = h;
@@ -1393,7 +1411,7 @@ LRESULT CALLBACK proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_GETMINMAXINFO: {
         auto mm = reinterpret_cast<MINMAXINFO *>(lp);
-        mm->ptMinTrackSize = {px(500), px(540)};
+        mm->ptMinTrackSize = {px(440), px(460)};
         MONITORINFO monitor{};
         monitor.cbSize = sizeof monitor;
         if (GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &monitor)) {
@@ -1617,7 +1635,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         return 3;
     RECT desktop{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &desktop, 0);
-    int width = px(560), height = std::min(px(680), static_cast<int>(desktop.bottom - desktop.top - 32));
+    int width = px(DEFAULT_WIDTH),
+        height = std::min(px(DEFAULT_HEIGHT), static_cast<int>(desktop.bottom - desktop.top - 32));
     window = CreateWindowExW(WS_EX_APPWINDOW, CLASS_NAME, demo ? L"Codex Pulse · 演示" : L"Codex Pulse",
                              WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, desktop.right - width - 24,
                              desktop.bottom - height - 16, width, height, nullptr, nullptr, inst, nullptr);

@@ -42,7 +42,7 @@ int main() {
         }
     };
     check((GetWindowLongPtrW(h, GWL_STYLE) & WS_CLIPCHILDREN) != 0, "parent excludes native child controls");
-    SetWindowPos(h, nullptr, 100, 60, 560, 570, SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(h, nullptr, 100, 60, 480, 460, SWP_NOZORDER | SWP_NOACTIVATE);
     for (int theme = 0; theme < 2; ++theme) {
         if (theme) {
             SendMessageW(h, WM_COMMAND, 110, 0);
@@ -50,6 +50,8 @@ int main() {
         }
         SendMessageW(h, WM_COMMAND, 100, 0);
         RedrawWindow(h, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+        // Allow posted layout/hover messages and the Windows compositor to settle after resizing.
+        Sleep(150);
         HWND button = GetDlgItem(h, 101);
         auto before = pixels(button);
         for (int i = 0; i < 100; ++i) {
@@ -64,6 +66,6 @@ int main() {
     // Restore the default light overview for the remaining smoke test and screenshots.
     SendMessageW(h, WM_COMMAND, 110, 0);
     SendMessageW(h, WM_COMMAND, 100, 0);
-    SetWindowPos(h, nullptr, 100, 60, 560, 680, SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(h, nullptr, 100, 60, 480, 520, SWP_NOZORDER | SWP_NOACTIVATE);
     std::cout << "PASS: " << checks << " repaint checks (200 parent redraws + 200 scrolls, light/dark)\n";
 }

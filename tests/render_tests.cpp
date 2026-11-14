@@ -85,8 +85,8 @@ int main() {
     chooseFont();
     settings = Settings{};
     snap = demoSnapshot();
-    window = CreateWindowW(cls.lpszClassName, L"probe", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, 20, 20, 560,
-                           680, nullptr, nullptr, inst, nullptr);
+    window = CreateWindowW(cls.lpszClassName, L"probe", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, 20, 20,
+                           DEFAULT_WIDTH, DEFAULT_HEIGHT, nullptr, nullptr, inst, nullptr);
     KillTimer(window, 1);
     ShowWindow(window, SW_SHOW);
     UpdateWindow(window);
@@ -99,7 +99,8 @@ int main() {
     ValidateRect(window, nullptr);
     updateCountdowns(1200);
     RECT dirty{};
-    check(GetUpdateRect(window, &dirty, FALSE) && dirty.top >= BODY_TOP + 50 && dirty.bottom <= 380,
+    check(GetUpdateRect(window, &dirty, FALSE) && dirty.top >= QUOTA_TOP + RESET_ROW &&
+              dirty.bottom <= QUOTA_TOP + RESET_ROW + 36,
           "countdown invalidates only reset rows");
     ValidateRect(window, nullptr);
     for (time_t now = 1201; now < 1260; ++now)
@@ -113,13 +114,7 @@ int main() {
     check(!GetUpdateRect(window, nullptr, FALSE), "details page is not repainted by countdown");
     tab = 0;
     snap = demoSnapshot();
-    for (int dpi : {96, 120, 144}) {
-        float scale = dpi / 96.f;
-        RECT area{30, 30, 30 + static_cast<int>(560 * scale), 30 + static_cast<int>(680 * scale)};
-        // In-process pointer is valid; do not send this pointer-bearing message across processes.
-        SendMessageW(window, WM_DPICHANGED, MAKELONG(dpi, dpi), reinterpret_cast<LPARAM>(&area));
-        RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
-        check(std::abs(dpiScale - scale) < .001f, "DPI change updates logical scaling");
+    auto savePreview = [&](const std::wstring &path) {
         RECT client{};
         GetClientRect(window, &client);
         HDC screen = GetDC(window), memory = CreateCompatibleDC(screen);
@@ -128,13 +123,22 @@ int main() {
         BitBlt(memory, 0, 0, client.right, client.bottom, screen, 0, 0, SRCCOPY);
         {
             Bitmap capture(dib, nullptr);
-            auto path = L"dist/preview-blue-dpi-" + std::to_wstring(dpi) + L".png";
-            check(capture.Save(path.c_str(), &png, nullptr) == Ok, "save production window at test DPI");
+            check(capture.Save(path.c_str(), &png, nullptr) == Ok, "save production window preview");
         }
         SelectObject(memory, old);
         DeleteObject(dib);
         DeleteDC(memory);
         ReleaseDC(window, screen);
+    };
+    for (int dpi : {96, 120, 144}) {
+        float scale = dpi / 96.f;
+        RECT area{30, 30, 30 + static_cast<int>(DEFAULT_WIDTH * scale),
+                  30 + static_cast<int>(DEFAULT_HEIGHT * scale)};
+        // In-process pointer is valid; do not send this pointer-bearing message across processes.
+        SendMessageW(window, WM_DPICHANGED, MAKELONG(dpi, dpi), reinterpret_cast<LPARAM>(&area));
+        RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+        check(std::abs(dpiScale - scale) < .001f, "DPI change updates logical scaling");
+        savePreview(L"dist/preview-blue-dpi-" + std::to_wstring(dpi) + L".png");
     }
     check((GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_LAYERED) == 0, "window stays fully opaque");
     check(tooltip && SendMessageW(tooltip, TTM_GETTOOLCOUNT, 0, 0) == static_cast<LRESULT>(controls.size()),
@@ -158,27 +162,41 @@ int main() {
     check(activityPage == 1, "next page changes session page");
     command(ID_PREV);
     check(activityPage == 0, "previous page returns to first page");
+    command(ID_STATS);
+    const float pageWidth = sizeDip().first;
     for (int page : {ID_OVERVIEW, ID_ACTIVITY, ID_SETTINGS}) {
         command(page);
         RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
         layout();
         auto [width, height] = sizeDip();
-        (void)width;
+        check(std::abs(width - pageWidth) < .01f, "tabs keep the same content width");
         check(contentHeight <= height - FOOTER, "primary view fits without scrolling");
         check((GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL) == 0, "primary view hides the scrollbar");
+        savePreview(L"dist/preview-page-" + std::to_wstring(page) + L".png");
     }
+    settings.theme = 2;
+    updateColors();
+    command(ID_OVERVIEW);
+    RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    savePreview(L"dist/preview-dark.png");
+    settings.theme = 1;
+    updateColors();
     command(ID_OVERVIEW);
     snap.quota.windows.resize(8, snap.quota.windows.front());
     RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
     layout();
     check((GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL) != 0,
           "extra quota windows remain reachable by overflow scrolling");
+    check(std::abs(sizeDip().first - pageWidth) < .01f,
+          "overflow scrollbar does not shrink cards or navigation");
     snap = demoSnapshot();
     command(ID_OVERVIEW);
     RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
     layout();
     check((GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL) == 0,
           "scrollbar disappears when normal content returns");
+    check(std::abs(sizeDip().first - pageWidth) < .01f,
+          "content width stays stable after overflow clears");
     // Integrated chrome must keep native window operations and hit targets.
     RECT outer{}, client{};
     GetWindowRect(window, &outer);

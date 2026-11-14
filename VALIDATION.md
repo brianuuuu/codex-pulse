@@ -1,6 +1,18 @@
 # 验证记录 · 1.0.5
 
-构建日期：2026-11-14（北京时间）。环境：Debian 13 x86-64，MinGW-w64 GCC 14.2.0（POSIX），Wine 10.0 + Xvfb。**Windows EXE 已编译并实际运行，但未在真实 Windows 10/11 硬件和真实登录账户上验收。**
+## 当前源码界面调整 · 2026-11-14
+
+本次在本机 Windows 上使用便携 w64devkit 编译并运行，构建无警告，EXE 导入表仅包含 Windows 自带 DLL。验证使用合成演示数据，不连接真实账户。
+
+- 558 项渲染与交互检查通过：涵盖紧凑的 480 × 520 DIP 默认窗口、100% / 125% / 150% DPI、默认页面无滚动条、附加额度溢出滚动、各 Tab 和滚动前后的内容宽度一致、分页、标题栏窗口操作及额度倒计时局部刷新。加粗后的托盘图标覆盖 16–64 像素、低额度颜色边界、空额度与未知状态。
+- 13 项 UI 冒烟检查、401 项浅色 / 深色重绘检查通过。
+- 核对生产绘制代码输出的浅色概览、深色概览、明细与设置截图；仓库截图同步更新。
+- 补充 Common Controls v6 清单声明，解决本机 Windows 上悬停提示注册失败；渲染测试链接同一份资源清单。重绘测试在首次截取前等待布局与悬停消息稳定。
+- Windows 窗口捕获工具返回 `window capture timed out: timed out waiting on channel`，人工视觉核对使用渲染测试输出的原生窗口截图。
+
+## 历史发行验证环境
+
+1.0.5 发行构建日期：2026-11-14（北京时间）。当时环境：Debian 13 x86-64，MinGW-w64 GCC 14.2.0（POSIX），Wine 10.0 + Xvfb。以下历史记录不代表本次重跑范围；真实登录账户和多显示器等验收边界仍见文末。
 
 
 ## 1.0.5 验证
@@ -116,8 +128,8 @@ g++ -std=c++17 -Os -static -s tests/ui_smoke.cpp -o dist/ui_smoke.exe -luser32 -
 当前版本重绘与图标测试可按以下方式编译（MinGW-w64，工作目录为源码根目录）：
 
 ```sh
-g++ -std=c++17 -Os -s -static tests/ui_repaint_tests.cpp -o dist/ui_repaint_tests.exe -luser32 -lgdi32
-g++ -std=c++17 -Os -s -static -DUNICODE -D_UNICODE -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 tests/render_tests.cpp -o dist/render_tests.exe -lgdiplus -lwinhttp -lcomctl32 -lshell32 -lole32 -luuid -ladvapi32 -lbcrypt -ldwmapi -lgdi32 -luser32
+g++ -std=c++17 -Os -s -static tests/ui_repaint_tests.cpp dist/resources.o -o dist/ui_repaint_tests.exe -luser32 -lgdi32
+g++ -std=c++17 -Os -s -static -DUNICODE -D_UNICODE -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 tests/render_tests.cpp dist/resources.o -o dist/render_tests.exe -lgdiplus -lwinhttp -lcomctl32 -lshell32 -lole32 -luuid -ladvapi32 -lbcrypt -ldwmapi -lgdi32 -luser32
 ```
 
-先启动 `CodexPulse.exe --demo`，再执行 `ui_repaint_tests.exe`。`render_tests.exe` 可独立运行；DPI 消息在测试程序自己的进程内发送，输出 100% / 125% / 150% 的生产界面截图。图标和截图均为合成演示数据。
+先执行 `build.bat`（Windows）或 `build.sh`（交叉编译）生成 `dist/resources.o`，然后编译上述测试。启动 `CodexPulse.exe --demo` 后执行 `ui_repaint_tests.exe`。`render_tests.exe` 可独立运行；DPI 消息在测试程序自己的进程内发送，输出 100% / 125% / 150% 以及各页面和深色主题的生产界面截图。图标和截图均为合成演示数据。
