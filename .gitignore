@@ -1,0 +1,13 @@
+/dist/
+/build/
+/tests/fixture-home/
+*.exe
+*.o
+*.obj
+*.zip
+*.bundle
+*.log
+__pycache__/
+.env
+.env.*
+!.env.example
