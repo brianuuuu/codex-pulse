@@ -57,9 +57,9 @@ int main() {
             check(correctColor && opaque > 0, "outline and fill use the remaining-quota threshold color");
             check(visible >= size * 1.5, "empty rounded progress bar outline remains readable");
             check(opaque < size * size * .7, "rounded progress bar has no solid colored tile");
-            check(maxy - miny + 1 >= size * .9 && maxx - minx + 1 >= size * .45 &&
-                      maxx - minx + 1 <= size * .6,
-                  "progress bar uses the native slot with a slim vertical silhouette");
+            check(maxy - miny + 1 >= size * .9 && maxx - minx + 1 >= size * .55 &&
+                      maxx - minx + 1 <= size * .7,
+                  "progress bar keeps full height and a readable vertical silhouette");
             check(minx >= 0 && maxx < size && miny >= 0 && maxy < size,
                   "rounded progress bar stays inside icon");
             if (used >= 0) {

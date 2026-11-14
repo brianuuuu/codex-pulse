@@ -13,7 +13,9 @@ inline void drawTrayIcon(Gdiplus::Graphics &g, int size, double usage) {
     g.SetPixelOffsetMode(PixelOffsetModeHalf);
     const float scale = size / 16.f;
     const int stroke = std::max(1, static_cast<int>(std::lround(scale)));
-    const int margin = static_cast<int>(std::lround(size * .25f));
+    // Keep the full height for progress resolution, but widen the track to
+    // roughly 5:8 so the fill remains legible at native 16/20px tray sizes.
+    const int margin = static_cast<int>(std::lround(size * .1875f));
     const int radius = std::max(1, static_cast<int>(std::lround(scale * 1.5f)));
     auto roundedPath = [](GraphicsPath &path, RectF r, float radius) {
         const float d = std::min({radius * 2, r.Width, r.Height});
