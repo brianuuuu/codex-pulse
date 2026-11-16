@@ -366,9 +366,8 @@ int main() {
     snap.quota.windows[1].used = 62.4;
     updateTray();
     check(std::abs(trayRenderUsage - 62.4) < .0001, "tray does not ceil fractional usage before drawing");
-    check(trayTooltip.find(L"最少剩余 37.6%") != std::wstring::npos &&
-              trayTooltip.find(L"对应额度：" + windowName(snap.quota.windows[1])) != std::wstring::npos,
-          "tray tooltip names the limiting quota and its fractional remaining value");
+    check(trayTooltip == L"剩余额度：37.6%\n下次重置：" + timestamp(snap.quota.windows[1].reset),
+          "tray tooltip only shows remaining quota and its reset time");
     // Redirect HKCU to a disposable key; never change the user's actual theme.
     {
         const std::wstring sandboxPath = L"Software\\CodexPulseTests\\tray-" +

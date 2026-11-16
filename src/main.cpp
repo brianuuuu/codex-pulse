@@ -422,7 +422,7 @@ std::wstring controlTip(int id) {
         return statusLabel() + L"\n" + sourceLabel() + L"\n" + timestamp(snap.quota.observed) +
                L"\n点击查看详情";
     if (id == ID_ABOUT)
-        return L"关于与说明 · 1.0.11";
+        return L"关于与说明 · 1.0.12";
     wchar_t label[256]{};
     auto it = controls.find(id);
     if (it != controls.end())
@@ -849,13 +849,10 @@ void updateTray() {
     n.uID = 1;
     n.uCallbackMessage = MSG_TRAY;
     n.hIcon = next;
-    std::wstring tip =
-        used < 0 ? L"Codex Pulse · 暂无额度数据" : L"Codex Pulse · 最少剩余 " + percent(100 - used, 1);
-    if (limitingWindow)
-        tip += L"\n对应额度：" + windowName(*limitingWindow);
-    for (size_t i = 0; i < std::min<size_t>(2, snap.quota.windows.size()); ++i)
-        tip += L"\n" + windowName(snap.quota.windows[i]) + L"：已用 " + percent(snap.quota.windows[i].used, 1);
-    tip += L"\n" + sourceLabel();
+    std::wstring tip = used < 0 ? L"剩余额度：暂无数据" : L"剩余额度：" + percent(100 - used, 1);
+    tip += L"\n下次重置：" + (limitingWindow && limitingWindow->reset
+                                   ? timestamp(limitingWindow->reset)
+                                   : L"未提供");
     tip.resize(std::min<size_t>(tip.size(), 127));
     wcsncpy_s(n.szTip, tip.c_str(), _TRUNCATE);
     const bool adding = !trayAdded;
@@ -1052,7 +1049,7 @@ void refresh() {
 }
 std::wstring report() {
     std::wostringstream out;
-    out << L"Codex Pulse 1.0.11\r\n"
+    out << L"Codex Pulse 1.0.12\r\n"
         << (demo ? L"演示数据\r\n" : L"") << sourceLabel() << L"\r\n"
         << L"状态：" << wide(snap.status) << L"\r\n"
         << L"额度采样：" << timestamp(snap.quota.observed) << L"\r\n";
@@ -1234,7 +1231,7 @@ void command(int id) {
     }
     if (id == ID_ABOUT) {
         MessageBoxW(window,
-                    L"Codex Pulse 1.0.11\n\n只读本机登录与用量，仅向 chatgpt.com "
+                    L"Codex Pulse 1.0.12\n\n只读本机登录与用量，仅向 chatgpt.com "
                     L"查询额度。\n无遥测，不上传会话内容。\n\n账户额度与本机 Token "
                     L"统计口径不同。\n缓存输入已包含在输入中，推理输出已包含在输出中。\n独立工具，与 OpenAI "
                     L"无隶属关系。",
