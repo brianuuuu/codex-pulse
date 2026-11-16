@@ -129,6 +129,7 @@ int main() {
     demo = true;
     chooseFont();
     settings = Settings{};
+    settings.theme = 1;
     snap = demoSnapshot();
     window = CreateWindowW(cls.lpszClassName, L"probe", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, 20, 20,
                            DEFAULT_WIDTH, DEFAULT_HEIGHT, nullptr, nullptr, inst, nullptr);
@@ -147,6 +148,9 @@ int main() {
     check(GetUpdateRect(window, &dirty, FALSE) && dirty.top >= QUOTA_TOP + RESET_ROW &&
               dirty.bottom <= QUOTA_TOP + RESET_ROW + 36,
           "countdown invalidates only reset rows");
+    check(dirty.left <= px(quotaBounds(0, sizeDip().first).X) &&
+              dirty.right >= px(quotaBounds(1, sizeDip().first).GetRight()),
+          "countdown repaint covers the full width of the unboxed quota text");
     ValidateRect(window, nullptr);
     for (time_t now = 1201; now < 1260; ++now)
         updateCountdowns(now);
@@ -183,7 +187,7 @@ int main() {
         SendMessageW(window, WM_DPICHANGED, MAKELONG(dpi, dpi), reinterpret_cast<LPARAM>(&area));
         RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
         check(std::abs(dpiScale - scale) < .001f, "DPI change updates logical scaling");
-        savePreview(L"dist/preview-blue-dpi-" + std::to_wstring(dpi) + L".png");
+        savePreview(L"dist/preview-overview-dpi-" + std::to_wstring(dpi) + L".png");
     }
     check((GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_LAYERED) == 0, "window stays fully opaque");
     check(tooltip && SendMessageW(tooltip, TTM_GETTOOLCOUNT, 0, 0) == static_cast<LRESULT>(controls.size()),
@@ -219,6 +223,25 @@ int main() {
         check((GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL) == 0, "primary view hides the scrollbar");
         savePreview(L"dist/preview-page-" + std::to_wstring(page) + L".png");
     }
+    // Empty and single-quota accounts must keep the summary and activity accessible.
+    for (size_t quotas : {size_t(0), size_t(1)}) {
+        command(ID_OVERVIEW);
+        snap = demoSnapshot();
+        snap.quota.windows.resize(quotas);
+        snap.status = "当前账户尚未提供订阅额度，请登录后刷新；本机 Token 仍可查看。";
+        RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+        layout();
+        check(contentHeight <= sizeDip().second - FOOTER, "empty and single-quota overview fits");
+        check((GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL) == 0,
+              "empty and single-quota overview needs no scrollbar");
+        savePreview(L"dist/preview-quota-count-" + std::to_wstring(quotas) + L".png");
+    }
+    snap = demoSnapshot();
+    snap.quota.limitReached = true;
+    RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    layout();
+    check(contentHeight <= sizeDip().second - FOOTER, "quota limit warning fits below local activity");
+    snap = demoSnapshot();
     settings.theme = 2;
     updateColors();
     command(ID_OVERVIEW);
