@@ -22,6 +22,35 @@ int main() {
     check(percent(37.6) == L"38%", "existing page percentage formatting stays unchanged");
     CLSID png;
     CLSIDFromString(L"{557cf406-1a04-11d3-9a73-0000f81ef32e}", &png);
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        for (bool vertical : {false, true}) {
+            Bitmap bitmap(64, 64, PixelFormat32bppARGB);
+            {
+                Graphics g(&bitmap);
+                g.Clear(Color(0, 0, 0, 0));
+                g.ScaleTransform(scale, scale);
+                g.TranslateTransform(0, -3);
+                hairline(g, 4, 5.2f, vertical ? 4 : 24, vertical ? 25.2f : 5.2f,
+                         Color(229, 229, 229));
+            }
+            bool opaque = true;
+            int minx = 64, miny = 64, maxx = -1, maxy = -1;
+            for (int y = 0; y < 64; ++y)
+                for (int x = 0; x < 64; ++x) {
+                    Color c;
+                    bitmap.GetPixel(x, y, &c);
+                    opaque &= c.GetA() == 0 || c.GetA() == 255;
+                    if (c.GetA()) {
+                        minx = std::min(minx, x); maxx = std::max(maxx, x);
+                        miny = std::min(miny, y); maxy = std::max(maxy, y);
+                    }
+                }
+            check(opaque && maxx >= minx && maxy >= miny,
+                  "transformed separators have visible opaque pixels without blurry edges");
+            check(vertical ? maxx == minx : maxy == miny,
+                  "separators remain one physical pixel after fractional DPI and scrolling");
+        }
+    }
     auto luminance = [](Color color) {
         auto linear = [](BYTE channel) {
             const double v = channel / 255.;
@@ -316,7 +345,7 @@ int main() {
         ClientToScreen(window, &point);
         return SendMessageW(window, WM_NCHITTEST, 0, MAKELPARAM(point.x, point.y));
     };
-    check(hit(100, 36) == HTCAPTION, "brand area supports native title dragging");
+    check(hit(100, TITLE_HEIGHT - 8) == HTCAPTION, "brand area supports native title dragging");
     check(hit(100, 100) == HTCLIENT, "data area does not drag the window");
     check(hit(1, 1) == HTTOPLEFT, "corner supports diagonal resizing");
     check(hit(200, 1) == HTTOP, "top edge supports resizing");

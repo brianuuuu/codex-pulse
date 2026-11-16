@@ -13,9 +13,9 @@ constexpr int ID_OVERVIEW = 100, ID_ACTIVITY = 101, ID_SETTINGS = 102, ID_REFRES
               ID_NOTIFY = 114, ID_HOME = 115, ID_AUTOSTART = 116, ID_RESET_HOME = 117, ID_STATUS = 118,
               ID_ABOUT = 119, ID_STATS = 120, ID_MODELS = 121, ID_SESSIONS = 122, ID_PREV = 123,
               ID_NEXT = 124, ID_MINIMIZE = 125, ID_MAXIMIZE = 126, ID_CLOSE = 127;
-constexpr int DEFAULT_WIDTH = 480, DEFAULT_HEIGHT = 520;
-constexpr int TITLE_HEIGHT = 44, BODY_TOP = 78, FOOTER = 44;
-constexpr int SUMMARY_TOP = BODY_TOP + 16, QUOTA_TOP = BODY_TOP + 118, QUOTA_STEP = 126, RESET_ROW = 76;
+constexpr int DEFAULT_WIDTH = 480, DEFAULT_HEIGHT = 480;
+constexpr int TITLE_HEIGHT = 36, BODY_TOP = 70, FOOTER = 32;
+constexpr int SUMMARY_TOP = BODY_TOP + 16, QUOTA_TOP = BODY_TOP + 100, QUOTA_STEP = 112, RESET_ROW = 64;
 int activityView = 0, activityPage = 0;
 HWND tooltip = nullptr;
 HFONT tooltipFont = nullptr;
@@ -56,51 +56,39 @@ struct Snapshot {
 Snapshot snap, pending;
 unsigned pendingGeneration = 0;
 struct Palette {
-    Color bg, text, muted, line, accent, soft, warning;
+    Color bg, chrome, text, muted, line, accent, soft, warning, track, chart;
 };
 Palette colors;
 std::map<int, HWND> controls;
 namespace TypeSize {
-constexpr float caption = 10.5f, body = 12.f, heading = 12.f, title = 13.f;
-constexpr float navigation = 12.f, quota = 20.f, metric = 18.f, listValue = 13.f;
+constexpr float caption = 11.f, body = 13.f, heading = 12.f, title = 12.f;
+constexpr float navigation = 13.f, quota = 18.f, metric = 16.f, listValue = 13.f;
 } // namespace TypeSize
 std::wstring uiFont = L"Segoe UI";
-std::wstring latinFont = L"Segoe UI", latinEmphasisFont;
+std::wstring emphasisFont;
 void chooseFont() {
-    for (auto name : {L"Microsoft YaHei UI", L"Microsoft YaHei", L"Noto Sans CJK SC", L"Segoe UI", L"Arial",
-                      L"DejaVu Sans"}) {
+    // Match the Windows workbench font stack. GDI+ supplies per-glyph fallback
+    // for Chinese within the same layout instead of switching whole strings.
+    for (auto name : {L"Segoe UI", L"Microsoft YaHei UI", L"Microsoft YaHei", L"Noto Sans CJK SC",
+                      L"Arial", L"DejaVu Sans"}) {
         FontFamily family(name);
         if (family.IsAvailable()) {
             uiFont = name;
             break;
         }
     }
-    latinFont = uiFont;
-    for (auto name : {L"Segoe UI", L"Noto Sans", L"Arial", L"DejaVu Sans"}) {
-        FontFamily family(name);
-        if (family.IsAvailable()) {
-            latinFont = name;
-            break;
-        }
-    }
-    latinEmphasisFont.clear();
+    emphasisFont.clear();
     FontFamily semibold(L"Segoe UI Semibold");
-    if (latinFont == L"Segoe UI" && semibold.IsAvailable())
-        latinEmphasisFont = L"Segoe UI Semibold";
+    if (uiFont == L"Segoe UI" && semibold.IsAvailable())
+        emphasisFont = L"Segoe UI Semibold";
 }
 struct TextFace {
     const wchar_t *family;
     INT style;
 };
-TextFace textFace(const std::wstring &value, bool emphasis = false) {
-    // Keep mixed Chinese/English strings in one family so their baseline and
-    // punctuation stay together. Latin-only labels and numbers use the UI face.
-    const bool latin = std::all_of(value.begin(), value.end(), [](wchar_t ch) {
-        return ch <= 0x024f || (ch >= 0x2000 && ch <= 0x206f);
-    });
-    if (latin && emphasis && !latinEmphasisFont.empty())
-        return {latinEmphasisFont.c_str(), FontStyleRegular};
-    return {(latin ? latinFont : uiFont).c_str(), emphasis ? FontStyleBold : FontStyleRegular};
+TextFace textFace(const std::wstring &, bool emphasis = false) {
+    // Prefer a real medium face; do not synthesize heavy bold for CJK fallbacks.
+    return {(emphasis && !emphasisFont.empty() ? emphasisFont : uiFont).c_str(), FontStyleRegular};
 }
 int px(float x) {
     return static_cast<int>(std::lround(x * dpiScale));
@@ -123,10 +111,12 @@ bool systemDark() {
 void updateColors() {
     bool dark = settings.theme == 2 || (settings.theme == 0 && systemDark());
     colors =
-        dark ? Palette{Color(23, 27, 36), Color(237, 240, 247), Color(164, 173, 190), Color(52, 61, 78),
-                       Color(124, 168, 255), Color(39, 55, 83), Color(241, 182, 91)}
-             : Palette{Color(255, 255, 255), Color(24, 28, 38), Color(119, 122, 133), Color(229, 232, 240),
-                       Color(48, 103, 216), Color(234, 241, 253), Color(180, 108, 25)};
+        dark ? Palette{Color(31, 31, 31), Color(24, 24, 24), Color(204, 204, 204), Color(157, 157, 157),
+                       Color(43, 43, 43), Color(0, 120, 212), Color(43, 43, 43), Color(204, 167, 0),
+                       Color(60, 60, 60), Color(38, 79, 120)}
+             : Palette{Color(255, 255, 255), Color(248, 248, 248), Color(59, 59, 59), Color(97, 97, 97),
+                       Color(229, 229, 229), Color(0, 95, 184), Color(232, 232, 232), Color(157, 93, 0),
+                       Color(212, 212, 212), Color(151, 187, 221)};
     BOOL value = dark;
     DwmSetWindowAttribute(window, 20, &value, sizeof value);
     COLORREF border = RGB(colors.line.GetR(), colors.line.GetG(), colors.line.GetB());
@@ -138,6 +128,11 @@ void updateColors() {
 void rounded(Graphics &g, RectF r, float radius, Color color) {
     if (r.Width <= 0 || r.Height <= 0)
         return;
+    if (radius <= 0) {
+        SolidBrush brush(color);
+        g.FillRectangle(&brush, r);
+        return;
+    }
     float d = std::min({radius * 2, r.Width, r.Height});
     GraphicsPath p;
     p.AddArc(r.X, r.Y, d, d, 180, 90);
@@ -148,9 +143,25 @@ void rounded(Graphics &g, RectF r, float radius, Color color) {
     SolidBrush b(color);
     g.FillPath(&b, &p);
 }
+void hairline(Graphics &g, float x1, float y1, float x2, float y2, Color color) {
+    // Snap after all DPI/scroll transforms: separators remain one opaque
+    // physical pixel rather than a blurry 1.25/1.5-pixel stroke.
+    PointF points[]{{x1, y1}, {x2, y2}};
+    g.TransformPoints(CoordinateSpaceDevice, CoordinateSpaceWorld, points, 2);
+    auto state = g.Save();
+    g.ResetTransform();
+    g.SetSmoothingMode(SmoothingModeNone);
+    g.SetPixelOffsetMode(PixelOffsetModeHalf);
+    const int x = static_cast<int>(std::lround(points[0].X));
+    const int y = static_cast<int>(std::lround(points[0].Y));
+    const int right = static_cast<int>(std::lround(points[1].X));
+    const int bottom = static_cast<int>(std::lround(points[1].Y));
+    SolidBrush brush(color);
+    g.FillRectangle(&brush, x, y, std::max(1, right - x), std::max(1, bottom - y));
+    g.Restore(state);
+}
 void divider(Graphics &g, float y, float width) {
-    SolidBrush brush(colors.line);
-    g.FillRectangle(&brush, 24.f, y, width - 48, 1.f);
+    hairline(g, 24, y, width - 24, y, colors.line);
 }
 void text(Graphics &g, const std::wstring &s, float x, float y, float w, float h, float fontSize, Color c,
           bool bold = false, StringAlignment align = StringAlignmentNear, bool wrap = false) {
@@ -188,7 +199,7 @@ void label(Graphics &g, const std::wstring &name, const std::wstring &value, flo
          StringAlignmentFar);
 }
 void section(Graphics &g, const std::wstring &s, float y, float w) {
-    text(g, s, 24, y, w - 48, 24, TypeSize::heading, colors.text, true);
+    text(g, s, 24, y, w - 48, 24, TypeSize::heading, colors.muted, true);
 }
 std::wstring sourceLabel() {
     if (demo)
@@ -207,18 +218,19 @@ std::wstring statusLabel() {
 RectF quotaBounds(size_t index, float width) {
     const float columnWidth = (width - 72) / 2;
     return RectF(24 + static_cast<float>(index % 2) * (columnWidth + 24),
-                 QUOTA_TOP + static_cast<float>(index / 2) * QUOTA_STEP, columnWidth, 116);
+                 QUOTA_TOP + static_cast<float>(index / 2) * QUOTA_STEP, columnWidth, 104);
 }
 void drawQuota(Graphics &g, const Window &q, const RectF &r) {
     const float x = r.X, y = r.Y, width = r.Width;
-    text(g, windowName(q), x, y + 6, width, 20, TypeSize::body, colors.text);
+    text(g, windowName(q), x, y, width, 20, TypeSize::body, colors.text);
     Color tone = q.used >= 90 ? colors.warning : colors.accent;
-    text(g, percent(q.used), x, y + 26, width - 30, 32, TypeSize::quota, tone);
-    text(g, L"已用", r.GetRight() - 30, y + 36, 30, 18, TypeSize::caption, colors.muted, false,
+    text(g, percent(q.used), x, y + 24, width - 30, 28, TypeSize::quota,
+         q.used >= 90 ? colors.warning : colors.text);
+    text(g, L"已用", r.GetRight() - 30, y + 30, 30, 18, TypeSize::caption, colors.muted, false,
          StringAlignmentFar);
-    rounded(g, RectF(x, y + 64, width, 5), 2.5f, colors.line);
+    rounded(g, RectF(x, y + 56, width, 3), .5f, colors.track);
     if (q.valid() && q.used > 0)
-        rounded(g, RectF(x, y + 64, width * static_cast<float>(q.used / 100), 5), 2.5f, tone);
+        rounded(g, RectF(x, y + 56, width * static_cast<float>(q.used / 100), 3), .5f, tone);
     text(g, q.reset ? L"重置 " + timestamp(q.reset) : L"重置时间未提供", x, y + RESET_ROW, width,
          18, TypeSize::caption, colors.muted);
     text(g, q.reset ? duration(q.reset - std::time(nullptr)) : L"—", x, y + RESET_ROW + 18,
@@ -235,13 +247,12 @@ float drawOverview(Graphics &g, float w) {
                        : snap.quota.source == "local" ? L"本地快照"
                        : snap.online                  ? L"已连接"
                                                       : L"未连接";
-    text(g, L"●  " + std::wstring(state), w - 144, y, 120, 24, TypeSize::caption,
+    text(g, state, w - 144, y, 120, 24, TypeSize::caption,
          snap.cached ? colors.warning : colors.muted, false, StringAlignmentFar);
     const auto credits = snap.quota.unlimited ? L"∞" : snap.quota.creditBalance.empty()
                                                         ? L"—" : wide(snap.quota.creditBalance);
     const auto plan = wide(snap.quota.plan.empty() ? "订阅未提供" : snap.quota.plan);
     text(g, plan + L"  ·  " + credits + L" Credits", 24, y + 26, w - 48, 20, TypeSize::caption, colors.muted);
-    divider(g, y + 56, w);
     section(g, L"账户额度", QUOTA_TOP - 30, w);
     text(g, L"采样 " + timestamp(snap.quota.observed), w - 194, QUOTA_TOP - 28, 170, 20, TypeSize::caption,
          colors.muted, false, StringAlignmentFar);
@@ -256,7 +267,6 @@ float drawOverview(Graphics &g, float w) {
             drawQuota(g, snap.quota.windows[i], quotaBounds(i, w));
     }
     y = QUOTA_TOP + (snap.quota.windows.empty() ? 100 : rows * QUOTA_STEP);
-    divider(g, y + 4, w);
     y += 20;
     section(g, L"本机 Token", y, w);
     const float columnWidth = (w - 48) / 3;
@@ -311,14 +321,14 @@ float drawActivity(Graphics &g, float w) {
                 drawGlyph(g, Glyph::Models, 40, y + 14, 20, colors.muted);
                 text(g, wide(models[i].first), 72, y + 8, w - 242, 32, TypeSize::body, colors.text);
                 text(g, shortCount(models[i].second.total), w - 176, y + 8, 134, 32, TypeSize::listValue,
-                     colors.accent, false, StringAlignmentFar);
+                     colors.text, false, StringAlignmentFar);
             } else {
                 const auto &item = snap.activity.recent[i];
                 text(g, wide(item.model), 40, y + 3, w - 218, 23, TypeSize::body, colors.text);
                 text(g, timestamp(item.last) + L"  ·  " + wide(item.id.substr(0, 8)), 40, y + 24, w - 218, 18,
                      TypeSize::caption, colors.muted);
                 text(g, shortCount(item.total.total), w - 172, y + 8, 130, 32, TypeSize::listValue,
-                     colors.accent, false, StringAlignmentFar);
+                     colors.text, false, StringAlignmentFar);
             }
             y += 56;
         }
@@ -346,7 +356,7 @@ float drawActivity(Graphics &g, float w) {
         text(g, shortCount(totals[i]), x, y + 7, col, 20, TypeSize::caption, colors.muted, false,
              StringAlignmentCenter);
         rounded(g, RectF(x + col * .28f, baseline - std::max(3.f, bh), col * .44f, std::max(3.f, bh)), 3,
-                i == 6 ? colors.accent : colors.soft);
+                i == 6 ? colors.accent : colors.chart);
         text(g, wide(days[i].substr(5)), x, baseline + 6, col, 19, TypeSize::caption, colors.muted, false,
              StringAlignmentCenter);
     }
@@ -357,7 +367,7 @@ float drawActivity(Graphics &g, float w) {
     label(g, L"    缓存输入", count(snap.activity.today.cached), y + 34, w, colors.muted);
     label(g, L"输出", count(snap.activity.today.output), y + 60, w, colors.text);
     label(g, L"    推理输出", count(snap.activity.today.reasoning), y + 86, w, colors.muted);
-    label(g, L"合计", count(snap.activity.today.total), y + 124, w, colors.accent);
+    label(g, L"合计", count(snap.activity.today.total), y + 124, w, colors.text);
     y += 172;
     drawGlyph(g, Glyph::Folder, 30, y + 3, 16, colors.muted);
     text(g, std::to_wstring(snap.activity.files), 53, y, w / 4, 22, TypeSize::caption, colors.muted);
@@ -396,34 +406,23 @@ void updateControlText() {
     setText(ID_REFRESH, busy ? L"正在刷新…" : L"刷新   F5");
 }
 float drawSettings(Graphics &g, float w) {
-    float y = BODY_TOP + 8;
-    section(g, L"偏好", y, w);
-    y += 28;
-    divider(g, y + 132, w);
-    y += 142;
-    section(g, L"数据目录", y, w);
-    y += 28;
-    divider(g, y + 88, w);
+    section(g, L"偏好设置", BODY_TOP + 8, w);
+    divider(g, BODY_TOP + 256, w);
+    section(g, L"数据目录", BODY_TOP + 264, w);
     auto home = settings.home.empty() ? defaultHome() : fs::path(settings.home);
-    text(g, home.wstring(), 40, y + 8, w - 80, 30, TypeSize::body, colors.text, false,
+    text(g, home.wstring(), 24, BODY_TOP + 292, w - 132, 38, TypeSize::body, colors.text, false,
          StringAlignmentNear, true);
-    y += 96;
-    drawGlyph(g, Glyph::Cloud, 40, y + 12, 20, colors.muted);
-    text(g,
-         demo                             ? L"演示"
-         : snap.authSource == "auth.json" ? L"文件登录"
-         : snap.authSource == "Windows 凭据管理器"
-             ? L"系统凭据"
-             : wide(snap.authSource.empty() ? "未连接" : snap.authSource),
-         72, y + 8, w - 112, 28, TypeSize::body, colors.text);
-    return y + 56;
+    drawGlyph(g, Glyph::Cloud, 24, BODY_TOP + 340, 16, colors.muted);
+    text(g, demo ? L"演示数据" : wide(snap.authSource.empty() ? "未连接" : snap.authSource),
+         48, BODY_TOP + 334, w - 72, 28, TypeSize::caption, colors.muted);
+    return BODY_TOP + 368;
 }
 std::wstring controlTip(int id) {
     if (id == ID_STATUS)
         return statusLabel() + L"\n" + sourceLabel() + L"\n" + timestamp(snap.quota.observed) +
                L"\n点击查看详情";
     if (id == ID_ABOUT)
-        return L"关于与说明 · 1.0.10";
+        return L"关于与说明 · 1.0.11";
     wchar_t label[256]{};
     auto it = controls.find(id);
     if (it != controls.end())
@@ -525,35 +524,29 @@ void layout() {
         else
             SetWindowPos(ctl, nullptr, nx, ny, nw, nh, flags);
     };
-    const float navWidth = (w - 48) / 3;
-    move(ID_OVERVIEW, 24, TITLE_HEIGHT, navWidth, BODY_TOP - TITLE_HEIGHT);
-    move(ID_ACTIVITY, 24 + navWidth, TITLE_HEIGHT, navWidth, BODY_TOP - TITLE_HEIGHT);
-    move(ID_SETTINGS, 24 + navWidth * 2, TITLE_HEIGHT, navWidth, BODY_TOP - TITLE_HEIGHT);
-    move(ID_MINIMIZE, w - 124, 8, 28, 28);
-    move(ID_MAXIMIZE, w - 88, 8, 28, 28);
-    move(ID_CLOSE, w - 52, 8, 28, 28);
-    move(ID_STATUS, 104, h - 38, 32, 32);
-    move(ID_REFRESH, 24, h - 38, 32, 32);
-    move(ID_COPY, 64, h - 38, 32, 32);
-    move(ID_ABOUT, w - 100, h - 38, 32, 32);
-    move(ID_MORE, w - 60, h - 38, 32, 32);
-    const float tile = (w - 96) / 3;
-    auto setting = [&](int id, int col, int row) {
-        float y = BODY_TOP + 44 + row * 56 - scrollY;
-        move(id, 40 + col * (tile + 8), y, tile, 50, tab == 2 && y >= BODY_TOP && y + 50 <= h - FOOTER);
-    };
-    setting(ID_THEME, 0, 0);
-    setting(ID_INTERVAL, 1, 0);
-    setting(ID_ONLINE, 2, 0);
-    setting(ID_TRAY, 0, 1);
-    setting(ID_NOTIFY, 1, 1);
-    setting(ID_AUTOSTART, 2, 1);
-    const float folderY = BODY_TOP + 248 - scrollY;
-    move(ID_HOME, 40, folderY, 36, 32, tab == 2 && folderY >= BODY_TOP && folderY + 32 <= h - FOOTER);
-    move(ID_RESET_HOME, 84, folderY, 36, 32, tab == 2 && folderY >= BODY_TOP && folderY + 32 <= h - FOOTER);
-    move(ID_STATS, w - 148, BODY_TOP + 4, 32, 30, tab == 1);
-    move(ID_MODELS, w - 108, BODY_TOP + 4, 32, 30, tab == 1);
-    move(ID_SESSIONS, w - 68, BODY_TOP + 4, 32, 30, tab == 1);
+    constexpr float navWidth = 96;
+    move(ID_OVERVIEW, 0, TITLE_HEIGHT, navWidth, BODY_TOP - TITLE_HEIGHT);
+    move(ID_ACTIVITY, navWidth, TITLE_HEIGHT, navWidth, BODY_TOP - TITLE_HEIGHT);
+    move(ID_SETTINGS, navWidth * 2, TITLE_HEIGHT, navWidth, BODY_TOP - TITLE_HEIGHT);
+    move(ID_MINIMIZE, w - 132, 0, 44, TITLE_HEIGHT);
+    move(ID_MAXIMIZE, w - 88, 0, 44, TITLE_HEIGHT);
+    move(ID_CLOSE, w - 44, 0, 44, TITLE_HEIGHT);
+    move(ID_REFRESH, 8, h - 30, 28, 28);
+    move(ID_COPY, 38, h - 30, 28, 28);
+    move(ID_STATUS, 68, h - 30, 28, 28);
+    move(ID_ABOUT, w - 68, h - 30, 28, 28);
+    move(ID_MORE, w - 36, h - 30, 28, 28);
+    const int preferences[] = {ID_THEME, ID_INTERVAL, ID_ONLINE, ID_TRAY, ID_NOTIFY, ID_AUTOSTART};
+    for (int row = 0; row < 6; ++row) {
+        const float y = BODY_TOP + 40 + row * 34 - scrollY;
+        move(preferences[row], 16, y, w - 32, 32, tab == 2 && y >= BODY_TOP && y + 32 <= h - FOOTER);
+    }
+    const float folderY = BODY_TOP + 296 - scrollY;
+    move(ID_HOME, w - 92, folderY, 32, 28, tab == 2 && folderY >= BODY_TOP && folderY + 28 <= h - FOOTER);
+    move(ID_RESET_HOME, w - 56, folderY, 32, 28, tab == 2 && folderY >= BODY_TOP && folderY + 28 <= h - FOOTER);
+    move(ID_STATS, w - 116, BODY_TOP + 8, 24, 24, tab == 1);
+    move(ID_MODELS, w - 84, BODY_TOP + 8, 24, 24, tab == 1);
+    move(ID_SESSIONS, w - 52, BODY_TOP + 8, 24, 24, tab == 1);
     bool paging = tab == 1 && activityView != 0 && pageCount() > 1;
     move(ID_PREV, w / 2 - 82, h - FOOTER - 32, 28, 26, paging);
     move(ID_NEXT, w / 2 + 54, h - FOOTER - 32, 28, 26, paging);
@@ -629,10 +622,15 @@ void paint() {
     g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
     g.ScaleTransform(dpiScale, dpiScale);
     auto [w, h] = sizeDip();
-    divider(g, h - FOOTER, w);
-    rounded(g, RectF(24, 10, 24, 24), 8, colors.accent);
-    text(g, L">_", 24, 10, 24, 23, 13, Color(255, 255, 255), true, StringAlignmentCenter);
-    text(g, L"Codex Pulse", 58, 8, w - 196, 28, TypeSize::title, colors.text, true);
+    SolidBrush chrome(colors.chrome);
+    g.FillRectangle(&chrome, 0.f, 0.f, w, float(BODY_TOP));
+    g.FillRectangle(&chrome, 0.f, h - FOOTER, w, float(FOOTER));
+    hairline(g, 0, TITLE_HEIGHT, w, TITLE_HEIGHT, colors.line);
+    hairline(g, 0, BODY_TOP - 1.f / dpiScale, w, BODY_TOP - 1.f / dpiScale, colors.line);
+    hairline(g, 0, h - FOOTER, w, h - FOOTER, colors.line);
+    drawGlyph(g, Glyph::Chart, 12, 10, 16, colors.accent);
+    text(g, L"Codex Pulse", 36, 4, w - 184, 28, TypeSize::title, colors.text);
+    text(g, sourceLabel(), 104, h - 29, w - 184, 26, TypeSize::caption, colors.muted);
     auto saved = g.Save();
     g.SetClip(RectF(0, BODY_TOP, w, std::max(1.f, h - BODY_TOP - FOOTER)));
     g.TranslateTransform(0, static_cast<float>(-scrollY));
@@ -660,17 +658,26 @@ void drawButton(const DRAWITEMSTRUCT *d) {
           h = (d->rcItem.bottom - d->rcItem.top) / dpiScale;
     int id = static_cast<int>(d->CtlID);
     bool active = (id >= ID_OVERVIEW && id <= ID_SETTINGS && id - ID_OVERVIEW == tab) ||
-                  (id >= ID_STATS && id <= ID_SESSIONS && id - ID_STATS == activityView) || id == ID_REFRESH;
+                  (id >= ID_STATS && id <= ID_SESSIONS && id - ID_STATS == activityView);
     bool pressed = (d->itemState & ODS_SELECTED) != 0, disabled = (d->itemState & ODS_DISABLED) != 0;
     bool focusVisible = (d->itemState & ODS_FOCUS) && !(d->itemState & ODS_NOFOCUSRECT);
     bool navigation = id >= ID_OVERVIEW && id <= ID_SETTINGS;
-    // Native children paint the same opaque surface as their parent.
-    g.Clear(colors.bg);
-    if (!navigation && (pressed || active || hoveredControl == id || focusVisible))
-        rounded(g, RectF(1, 1, w - 2, h - 3), 9,
-                id == ID_CLOSE && (pressed || hoveredControl == id) ? Color(225, 58, 73)
-                : pressed                                         ? colors.line
-                                                                  : colors.soft);
+    bool windowControl = id >= ID_MINIMIZE;
+    RECT position{};
+    GetWindowRect(d->hwndItem, &position);
+    MapWindowPoints(nullptr, window, reinterpret_cast<POINT *>(&position), 2);
+    const float originY = position.top / dpiScale;
+    const bool onChrome = originY < BODY_TOP || originY >= sizeDip().second - FOOTER;
+    g.Clear(onChrome && !(navigation && active) ? colors.chrome : colors.bg);
+    if (!navigation && (pressed || active || hoveredControl == id))
+        rounded(g, RectF(0, 0, w, h), windowControl ? 0 : 3,
+                id == ID_CLOSE && (pressed || hoveredControl == id) ? Color(196, 43, 28) : colors.soft);
+    if (focusVisible) {
+        hairline(g, 1, 1, w - 1, 1, colors.accent);
+        hairline(g, 1, h - 1, w - 1, h - 1, colors.accent);
+        hairline(g, 1, 1, 1, h - 1, colors.accent);
+        hairline(g, w - 1, 1, w - 1, h - 1, colors.accent);
+    }
     Glyph glyph = Glyph::Info;
     switch (id) {
     case ID_MINIMIZE:
@@ -744,34 +751,48 @@ void drawButton(const DRAWITEMSTRUCT *d) {
                                               : Glyph::Warning;
         break;
     }
-    Color tone = disabled ? colors.line : active ? colors.accent : colors.text;
+    Color tone = disabled ? colors.muted : colors.text;
     if (id == ID_CLOSE && (pressed || hoveredControl == id))
         tone = Color(255, 255, 255);
-    if (id == ID_STATUS)
-        tone = snap.online && !snap.cached ? colors.accent : colors.warning;
-    bool tile = id >= ID_THEME && id <= ID_AUTOSTART && id != ID_HOME;
-    float iconSize = tile ? 20.f : id >= ID_MINIMIZE ? 14.f : 19.f;
+    if (id == ID_STATUS && !snap.online && !demo)
+        tone = colors.warning;
+    const bool settingRow = id >= ID_THEME && id <= ID_AUTOSTART && id != ID_HOME;
     if (navigation) {
         const wchar_t *labels[] = {L"概览", L"明细", L"设置"};
-        text(g, labels[id - ID_OVERVIEW], 0, 0, w, h - 8, TypeSize::navigation,
-             active ? colors.text : hoveredControl == id || focusVisible ? colors.accent : colors.muted,
-             active, StringAlignmentCenter);
-        if (active || focusVisible)
-            rounded(g, RectF(w / 2 - 11, h - 6, 22, 3), 1.5f, active ? colors.accent : colors.muted);
+        text(g, labels[id - ID_OVERVIEW], 0, 0, w, h, TypeSize::navigation,
+             active ? colors.text : colors.muted, false, StringAlignmentCenter);
+        hairline(g, w - 1.f / dpiScale, 0, w - 1.f / dpiScale, h, colors.line);
+        if (active) {
+            SolidBrush accent(colors.accent);
+            g.FillRectangle(&accent, 0.f, 0.f, w, 2.f);
+        } else
+            hairline(g, 0, h - 1.f / dpiScale, w, h - 1.f / dpiScale, colors.line);
+    } else if (settingRow) {
+        const wchar_t *label = id == ID_THEME ? L"外观" : id == ID_INTERVAL ? L"自动刷新"
+                             : id == ID_ONLINE ? L"在线额度" : id == ID_TRAY ? L"最小化到托盘"
+                             : id == ID_NOTIFY ? L"低额度提醒" : L"开机启动";
+        drawGlyph(g, glyph, 8, (h - 16) / 2, 16, colors.muted);
+        text(g, label, 36, 0, w - 172, h, TypeSize::body, colors.text);
+        if (id == ID_THEME || id == ID_INTERVAL)
+            text(g, id == ID_THEME ? themeLabel() : std::to_wstring(settings.interval / 60) + L" 分钟",
+                 w - 136, 0, 120, h, TypeSize::body, colors.muted, false, StringAlignmentFar);
+        else {
+            const bool enabled = id == ID_ONLINE ? settings.online : id == ID_TRAY ? settings.tray
+                                 : id == ID_NOTIFY ? settings.notify : autostart();
+            const float x = w - 32, y = (h - 16) / 2;
+            if (enabled) {
+                rounded(g, RectF(x, y, 16, 16), 2, colors.accent);
+                drawGlyph(g, Glyph::Check, x + 1, y + 1, 14, Color(255, 255, 255));
+            } else {
+                hairline(g, x, y, x + 16, y, colors.muted);
+                hairline(g, x, y + 16, x + 16, y + 16, colors.muted);
+                hairline(g, x, y, x, y + 16, colors.muted);
+                hairline(g, x + 16, y, x + 16, y + 16, colors.muted);
+            }
+        }
     } else {
-        drawGlyph(g, glyph, (w - iconSize) / 2, tile ? 6.f : (h - iconSize) / 2, iconSize, tone);
-    }
-    if (id == ID_THEME || id == ID_INTERVAL)
-        text(g, id == ID_THEME ? themeLabel() : std::to_wstring(settings.interval / 60) + L" min", 4, h - 22,
-             w - 8, 20, TypeSize::caption, colors.muted, false, StringAlignmentCenter);
-    else if (tile) {
-        bool enabled = id == ID_ONLINE   ? settings.online
-                       : id == ID_TRAY   ? settings.tray
-                       : id == ID_NOTIFY ? settings.notify
-                                         : autostart();
-        rounded(g, RectF(w / 2 - 10, h - 20, 20, 10), 5, enabled ? colors.accent : colors.line);
-        SolidBrush knob(Color(255, 255, 255));
-        g.FillEllipse(&knob, w / 2 + (enabled ? 2.f : -8.f), h - 18, 6.f, 6.f);
+        const float size = windowControl ? 12.f : 16.f;
+        drawGlyph(g, glyph, (w - size) / 2, (h - size) / 2, size, tone);
     }
     Graphics screen(d->hDC);
     screen.DrawImage(&buffer, static_cast<int>(d->rcItem.left), static_cast<int>(d->rcItem.top));
@@ -1031,7 +1052,7 @@ void refresh() {
 }
 std::wstring report() {
     std::wostringstream out;
-    out << L"Codex Pulse 1.0.10\r\n"
+    out << L"Codex Pulse 1.0.11\r\n"
         << (demo ? L"演示数据\r\n" : L"") << sourceLabel() << L"\r\n"
         << L"状态：" << wide(snap.status) << L"\r\n"
         << L"额度采样：" << timestamp(snap.quota.observed) << L"\r\n";
@@ -1213,7 +1234,7 @@ void command(int id) {
     }
     if (id == ID_ABOUT) {
         MessageBoxW(window,
-                    L"Codex Pulse 1.0.10\n\n只读本机登录与用量，仅向 chatgpt.com "
+                    L"Codex Pulse 1.0.11\n\n只读本机登录与用量，仅向 chatgpt.com "
                     L"查询额度。\n无遥测，不上传会话内容。\n\n账户额度与本机 Token "
                     L"统计口径不同。\n缓存输入已包含在输入中，推理输出已包含在输出中。\n独立工具，与 OpenAI "
                     L"无隶属关系。",
@@ -1420,7 +1441,7 @@ LRESULT CALLBACK proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_GETMINMAXINFO: {
         auto mm = reinterpret_cast<MINMAXINFO *>(lp);
-        mm->ptMinTrackSize = {px(440), px(460)};
+        mm->ptMinTrackSize = {px(440), px(420)};
         MONITORINFO monitor{};
         monitor.cbSize = sizeof monitor;
         if (GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &monitor)) {

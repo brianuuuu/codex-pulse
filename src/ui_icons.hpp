@@ -39,7 +39,7 @@ inline void drawGlyph(Gdiplus::Graphics &g, Glyph icon, float x, float y, float 
     auto state = g.Save();
     g.TranslateTransform(x, y);
     g.ScaleTransform(size / 24.f, size / 24.f);
-    Pen p(color, 1.75f);
+    Pen p(color, 1.5f);
     p.SetStartCap(LineCapRound);
     p.SetEndCap(LineCapRound);
     p.SetLineJoin(LineJoinRound);
