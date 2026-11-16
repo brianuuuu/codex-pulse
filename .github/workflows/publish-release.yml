@@ -1,0 +1,80 @@
+name: Publish Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag with a prepared draft release
+        required: true
+        default: v1.0.9
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check release is a draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64
+      - name: Test and build
+        run: |
+          ./test.sh
+          CXX=x86_64-w64-mingw32-g++-posix ./build.sh
+      - name: Package and verify
+        shell: python
+        run: |
+          import hashlib, os, pathlib, struct, zipfile
+          root = pathlib.Path('.')
+          tag = os.environ['RELEASE_TAG']
+          major, minor, patch = map(int, tag[1:].split('.'))
+          exe = (root / 'dist/CodexPulse.exe').read_bytes()
+          signature = struct.pack('<II', 0xFEEF04BD, 0x10000)
+          assert exe.count(signature) == 1
+          version = ((major << 16) | minor, patch << 16)
+          assert struct.unpack_from('<6I', exe, exe.index(signature))[2:] == version * 2
+          files = {'CodexPulse.exe': exe}
+          for name in ('README.md', 'CHANGELOG.md', 'VALIDATION.md', 'LICENSE',
+                       'screenshots/overview-light.png', 'screenshots/overview-dark.png',
+                       'screenshots/details.png', 'screenshots/settings.png', 'screenshots/README.txt'):
+              files[name] = (root / name).read_bytes()
+          sha = lambda data: hashlib.sha256(data).hexdigest()
+          files['SHA256SUMS.txt'] = ''.join(f'{sha(data)}  {name}\n' for name, data in files.items()).encode()
+          archive = root / 'dist' / f'CodexPulse-{tag}-windows-x64.zip'
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+              for name, data in files.items():
+                  z.writestr(name, data)
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              assert set(z.namelist()) == set(files)
+              for line in z.read('SHA256SUMS.txt').decode().splitlines():
+                  digest, name = line.split('  ', 1)
+                  assert sha(z.read(name)) == digest
+          (root / 'dist/SHA256SUMS.txt').write_text(f'{sha(archive.read_bytes())}  {archive.name}\n')
+      - name: Upload and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          gh release upload "$RELEASE_TAG" "dist/CodexPulse-${RELEASE_TAG}-windows-x64.zip" dist/SHA256SUMS.txt --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
