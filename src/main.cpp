@@ -60,16 +60,47 @@ struct Palette {
 };
 Palette colors;
 std::map<int, HWND> controls;
+namespace TypeSize {
+constexpr float caption = 10.5f, body = 12.f, heading = 12.f, title = 13.f;
+constexpr float navigation = 12.f, quota = 20.f, metric = 18.f, listValue = 13.f;
+} // namespace TypeSize
 std::wstring uiFont = L"Segoe UI";
+std::wstring latinFont = L"Segoe UI", latinEmphasisFont;
 void chooseFont() {
     for (auto name : {L"Microsoft YaHei UI", L"Microsoft YaHei", L"Noto Sans CJK SC", L"Segoe UI", L"Arial",
                       L"DejaVu Sans"}) {
         FontFamily family(name);
         if (family.IsAvailable()) {
             uiFont = name;
-            return;
+            break;
         }
     }
+    latinFont = uiFont;
+    for (auto name : {L"Segoe UI", L"Noto Sans", L"Arial", L"DejaVu Sans"}) {
+        FontFamily family(name);
+        if (family.IsAvailable()) {
+            latinFont = name;
+            break;
+        }
+    }
+    latinEmphasisFont.clear();
+    FontFamily semibold(L"Segoe UI Semibold");
+    if (latinFont == L"Segoe UI" && semibold.IsAvailable())
+        latinEmphasisFont = L"Segoe UI Semibold";
+}
+struct TextFace {
+    const wchar_t *family;
+    INT style;
+};
+TextFace textFace(const std::wstring &value, bool emphasis = false) {
+    // Keep mixed Chinese/English strings in one family so their baseline and
+    // punctuation stay together. Latin-only labels and numbers use the UI face.
+    const bool latin = std::all_of(value.begin(), value.end(), [](wchar_t ch) {
+        return ch <= 0x024f || (ch >= 0x2000 && ch <= 0x206f);
+    });
+    if (latin && emphasis && !latinEmphasisFont.empty())
+        return {latinEmphasisFont.c_str(), FontStyleRegular};
+    return {(latin ? latinFont : uiFont).c_str(), emphasis ? FontStyleBold : FontStyleRegular};
 }
 int px(float x) {
     return static_cast<int>(std::lround(x * dpiScale));
@@ -123,7 +154,8 @@ void divider(Graphics &g, float y, float width) {
 }
 void text(Graphics &g, const std::wstring &s, float x, float y, float w, float h, float fontSize, Color c,
           bool bold = false, StringAlignment align = StringAlignmentNear, bool wrap = false) {
-    Font f(uiFont.c_str(), fontSize, bold ? FontStyleBold : FontStyleRegular, UnitPixel);
+    const auto face = textFace(s, bold);
+    Font f(face.family, fontSize, face.style, UnitPixel);
     StringFormat fmt;
     fmt.SetAlignment(align);
     fmt.SetLineAlignment(StringAlignmentCenter);
@@ -138,23 +170,25 @@ void fittedNumber(Graphics &g, const std::wstring &value, float x, float y, floa
     format.SetFormatFlags(StringFormatFlagsNoWrap);
     format.SetLineAlignment(StringAlignmentCenter);
     format.SetTrimming(StringTrimmingNone);
-    float fontSize = 22.f;
-    Font initial(uiFont.c_str(), fontSize, FontStyleBold, UnitPixel);
+    float fontSize = TypeSize::metric;
+    const auto face = textFace(value);
+    Font initial(face.family, fontSize, face.style, UnitPixel);
     RectF measured;
     g.MeasureString(value.c_str(), -1, &initial, PointF(0, 0), &format, &measured);
     if (measured.Width > w - 2)
         fontSize *= std::max(0.4f, (w - 2) / measured.Width);
-    Font fitted(uiFont.c_str(), fontSize, FontStyleBold, UnitPixel);
+    Font fitted(face.family, fontSize, face.style, UnitPixel);
     SolidBrush brush(colors.text);
     g.DrawString(value.c_str(), -1, &fitted, RectF(x, y, w, h), &format, &brush);
 }
 void label(Graphics &g, const std::wstring &name, const std::wstring &value, float y, float width,
            Color valueColor) {
-    text(g, name, 40, y, width * .50f, 28, 12, colors.muted);
-    text(g, value, width * .50f, y, width * .50f - 40, 28, 13, valueColor, false, StringAlignmentFar);
+    text(g, name, 40, y, width * .50f, 28, TypeSize::body, colors.muted);
+    text(g, value, width * .50f, y, width * .50f - 40, 28, TypeSize::body, valueColor, false,
+         StringAlignmentFar);
 }
 void section(Graphics &g, const std::wstring &s, float y, float w) {
-    text(g, s, 24, y, w - 48, 24, 14, colors.text, true);
+    text(g, s, 24, y, w - 48, 24, TypeSize::heading, colors.text, true);
 }
 std::wstring sourceLabel() {
     if (demo)
@@ -177,44 +211,45 @@ RectF quotaBounds(size_t index, float width) {
 }
 void drawQuota(Graphics &g, const Window &q, const RectF &r) {
     const float x = r.X, y = r.Y, width = r.Width;
-    text(g, windowName(q), x, y + 6, width, 20, 12, colors.text, true);
+    text(g, windowName(q), x, y + 6, width, 20, TypeSize::body, colors.text);
     Color tone = q.used >= 90 ? colors.warning : colors.accent;
-    text(g, percent(q.used), x, y + 26, width - 30, 32, 26, tone, true);
-    text(g, L"已用", r.GetRight() - 30, y + 36, 30, 18, 9, colors.muted, false, StringAlignmentFar);
+    text(g, percent(q.used), x, y + 26, width - 30, 32, TypeSize::quota, tone);
+    text(g, L"已用", r.GetRight() - 30, y + 36, 30, 18, TypeSize::caption, colors.muted, false,
+         StringAlignmentFar);
     rounded(g, RectF(x, y + 64, width, 5), 2.5f, colors.line);
     if (q.valid() && q.used > 0)
         rounded(g, RectF(x, y + 64, width * static_cast<float>(q.used / 100), 5), 2.5f, tone);
     text(g, q.reset ? L"重置 " + timestamp(q.reset) : L"重置时间未提供", x, y + RESET_ROW, width,
-         18, 10, colors.muted);
+         18, TypeSize::caption, colors.muted);
     text(g, q.reset ? duration(q.reset - std::time(nullptr)) : L"—", x, y + RESET_ROW + 18,
-         width, 18, 10, colors.muted);
+         width, 18, TypeSize::caption, colors.muted);
 }
 float drawOverview(Graphics &g, float w) {
     // Three peer sections on one surface: account, quota, and local activity.
     float y = SUMMARY_TOP;
     text(g, wide(snap.account.empty() ? "未连接账户" : snap.account), 24, y, w - 192,
-         24, 14, colors.text, true);
+         24, TypeSize::body, colors.text);
     const auto state = demo                           ? L"演示数据"
                        : busy                         ? L"正在刷新"
                        : snap.cached                  ? L"在线缓存"
                        : snap.quota.source == "local" ? L"本地快照"
                        : snap.online                  ? L"已连接"
                                                       : L"未连接";
-    text(g, L"●  " + std::wstring(state), w - 144, y, 120, 24, 10,
+    text(g, L"●  " + std::wstring(state), w - 144, y, 120, 24, TypeSize::caption,
          snap.cached ? colors.warning : colors.muted, false, StringAlignmentFar);
     const auto credits = snap.quota.unlimited ? L"∞" : snap.quota.creditBalance.empty()
                                                         ? L"—" : wide(snap.quota.creditBalance);
     const auto plan = wide(snap.quota.plan.empty() ? "订阅未提供" : snap.quota.plan);
-    text(g, plan + L"  ·  " + credits + L" Credits", 24, y + 26, w - 48, 20, 11, colors.muted);
+    text(g, plan + L"  ·  " + credits + L" Credits", 24, y + 26, w - 48, 20, TypeSize::caption, colors.muted);
     divider(g, y + 56, w);
     section(g, L"账户额度", QUOTA_TOP - 30, w);
-    text(g, L"采样 " + timestamp(snap.quota.observed), w - 194, QUOTA_TOP - 28, 170, 20, 9,
+    text(g, L"采样 " + timestamp(snap.quota.observed), w - 194, QUOTA_TOP - 28, 170, 20, TypeSize::caption,
          colors.muted, false, StringAlignmentFar);
     const int rows = std::max(1, static_cast<int>((snap.quota.windows.size() + 1) / 2));
     if (snap.quota.windows.empty()) {
         drawGlyph(g, Glyph::Cloud, 24, QUOTA_TOP + 12, 18, colors.muted);
-        text(g, L"暂无额度数据", 52, QUOTA_TOP + 6, w - 76, 26, 12, colors.text, true);
-        text(g, wide(snap.status), 24, QUOTA_TOP + 40, w - 48, 44, 11, colors.muted, false,
+        text(g, L"暂无额度数据", 52, QUOTA_TOP + 6, w - 76, 26, TypeSize::body, colors.text);
+        text(g, wide(snap.status), 24, QUOTA_TOP + 40, w - 48, 44, TypeSize::body, colors.muted, false,
              StringAlignmentNear, true);
     } else {
         for (size_t i = 0; i < snap.quota.windows.size(); ++i)
@@ -230,12 +265,12 @@ float drawOverview(Graphics &g, float w) {
                                                                {L"30 天", snap.activity.month.total}}};
     for (size_t i = 0; i < totals.size(); ++i) {
         const float x = 24 + static_cast<float>(i) * columnWidth;
-        text(g, totals[i].first, x, y + 32, columnWidth - 16, 18, 10, colors.muted);
+        text(g, totals[i].first, x, y + 32, columnWidth - 16, 18, TypeSize::caption, colors.muted);
         fittedNumber(g, shortCount(totals[i].second), x, y + 52, columnWidth - 16, 30);
     }
     y += 94;
     if (snap.quota.limitReached) {
-        text(g, L"额度已达上限", 24, y, w - 48, 24, 11, colors.warning);
+        text(g, L"额度已达上限", 24, y, w - 48, 24, TypeSize::body, colors.warning);
         y += 28;
     }
     return y;
@@ -267,29 +302,29 @@ float drawActivity(Graphics &g, float w) {
         std::sort(models.begin(), models.end(),
                   [](auto &a, auto &b) { return a.second.total > b.second.total; });
         if (first == last) {
-            text(g, L"暂无记录", 40, y, w - 80, 44, 12, colors.muted);
+            text(g, L"暂无记录", 40, y, w - 80, 44, TypeSize::body, colors.muted);
         }
         for (int i = first; i < last; ++i) {
             if (i > first)
                 divider(g, y - 4, w);
             if (activityView == 1) {
                 drawGlyph(g, Glyph::Models, 40, y + 14, 20, colors.muted);
-                text(g, wide(models[i].first), 72, y + 8, w - 242, 32, 12, colors.text, true);
-                text(g, shortCount(models[i].second.total), w - 176, y + 8, 134, 32, 15, colors.accent, true,
-                     StringAlignmentFar);
+                text(g, wide(models[i].first), 72, y + 8, w - 242, 32, TypeSize::body, colors.text);
+                text(g, shortCount(models[i].second.total), w - 176, y + 8, 134, 32, TypeSize::listValue,
+                     colors.accent, false, StringAlignmentFar);
             } else {
                 const auto &item = snap.activity.recent[i];
-                text(g, wide(item.model), 40, y + 3, w - 218, 23, 12, colors.text, true);
+                text(g, wide(item.model), 40, y + 3, w - 218, 23, TypeSize::body, colors.text);
                 text(g, timestamp(item.last) + L"  ·  " + wide(item.id.substr(0, 8)), 40, y + 24, w - 218, 18,
-                     10, colors.muted);
-                text(g, shortCount(item.total.total), w - 172, y + 8, 130, 32, 15, colors.accent, true,
-                     StringAlignmentFar);
+                     TypeSize::caption, colors.muted);
+                text(g, shortCount(item.total.total), w - 172, y + 8, 130, 32, TypeSize::listValue,
+                     colors.accent, false, StringAlignmentFar);
             }
             y += 56;
         }
         if (pageCount() > 1)
             text(g, std::to_wstring(activityPage + 1) + L" / " + std::to_wstring(pageCount()), w / 2 - 40,
-                 h - FOOTER - 31, 80, 26, 11, colors.muted, false, StringAlignmentCenter);
+                 h - FOOTER - 31, 80, 26, TypeSize::caption, colors.muted, false, StringAlignmentCenter);
         return h - FOOTER - 4;
     }
     float chartHeight = std::clamp(h - FOOTER - y - 246, 84.f, 138.f);
@@ -308,10 +343,11 @@ float drawActivity(Graphics &g, float w) {
     float col = (w - 84) / 7, baseline = y + chartHeight - 29, barMax = chartHeight - 61;
     for (int i = 0; i < 7; ++i) {
         float x = 42 + i * col, bh = static_cast<float>(totals[i]) * barMax / static_cast<float>(peak);
-        text(g, shortCount(totals[i]), x, y + 7, col, 20, 9, colors.muted, false, StringAlignmentCenter);
+        text(g, shortCount(totals[i]), x, y + 7, col, 20, TypeSize::caption, colors.muted, false,
+             StringAlignmentCenter);
         rounded(g, RectF(x + col * .28f, baseline - std::max(3.f, bh), col * .44f, std::max(3.f, bh)), 3,
                 i == 6 ? colors.accent : colors.soft);
-        text(g, wide(days[i].substr(5)), x, baseline + 6, col, 19, 10, colors.muted, false,
+        text(g, wide(days[i].substr(5)), x, baseline + 6, col, 19, TypeSize::caption, colors.muted, false,
              StringAlignmentCenter);
     }
     y += chartHeight + 14;
@@ -324,13 +360,13 @@ float drawActivity(Graphics &g, float w) {
     label(g, L"合计", count(snap.activity.today.total), y + 124, w, colors.accent);
     y += 172;
     drawGlyph(g, Glyph::Folder, 30, y + 3, 16, colors.muted);
-    text(g, std::to_wstring(snap.activity.files), 53, y, w / 4, 22, 11, colors.muted);
+    text(g, std::to_wstring(snap.activity.files), 53, y, w / 4, 22, TypeSize::caption, colors.muted);
     drawGlyph(g, Glyph::Session, w / 3, y + 3, 16, colors.muted);
-    text(g, std::to_wstring(snap.activity.sessions), w / 3 + 23, y, w / 4, 22, 11, colors.muted);
+    text(g, std::to_wstring(snap.activity.sessions), w / 3 + 23, y, w / 4, 22, TypeSize::caption, colors.muted);
     if (snap.activity.partial || snap.activity.malformed) {
         drawGlyph(g, Glyph::Warning, w - 144, y + 3, 16, colors.warning);
         text(g, snap.activity.partial ? L"索引中" : std::to_wstring(snap.activity.malformed), w - 121, y, 96,
-             22, 11, colors.warning, false, StringAlignmentFar);
+             22, TypeSize::caption, colors.warning, false, StringAlignmentFar);
     }
     return y + 30;
 }
@@ -369,7 +405,8 @@ float drawSettings(Graphics &g, float w) {
     y += 28;
     divider(g, y + 88, w);
     auto home = settings.home.empty() ? defaultHome() : fs::path(settings.home);
-    text(g, home.wstring(), 40, y + 8, w - 80, 30, 11, colors.text, false, StringAlignmentNear, true);
+    text(g, home.wstring(), 40, y + 8, w - 80, 30, TypeSize::body, colors.text, false,
+         StringAlignmentNear, true);
     y += 96;
     drawGlyph(g, Glyph::Cloud, 40, y + 12, 20, colors.muted);
     text(g,
@@ -378,7 +415,7 @@ float drawSettings(Graphics &g, float w) {
          : snap.authSource == "Windows 凭据管理器"
              ? L"系统凭据"
              : wide(snap.authSource.empty() ? "未连接" : snap.authSource),
-         72, y + 8, w - 112, 28, 12, colors.text);
+         72, y + 8, w - 112, 28, TypeSize::body, colors.text);
     return y + 56;
 }
 std::wstring controlTip(int id) {
@@ -386,7 +423,7 @@ std::wstring controlTip(int id) {
         return statusLabel() + L"\n" + sourceLabel() + L"\n" + timestamp(snap.quota.observed) +
                L"\n点击查看详情";
     if (id == ID_ABOUT)
-        return L"关于与说明 · 1.0.9";
+        return L"关于与说明 · 1.0.10";
     wchar_t label[256]{};
     auto it = controls.find(id);
     if (it != controls.end())
@@ -427,8 +464,8 @@ void updateTooltipFont() {
     if (!tooltip)
         return;
     HFONT next =
-        CreateFontW(-px(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                    CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uiFont.c_str());
+        CreateFontW(-px(TypeSize::body), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, uiFont.c_str());
     if (next) {
         SendMessageW(tooltip, WM_SETFONT, reinterpret_cast<WPARAM>(next), TRUE);
         if (tooltipFont)
@@ -595,7 +632,7 @@ void paint() {
     divider(g, h - FOOTER, w);
     rounded(g, RectF(24, 10, 24, 24), 8, colors.accent);
     text(g, L">_", 24, 10, 24, 23, 13, Color(255, 255, 255), true, StringAlignmentCenter);
-    text(g, L"Codex Pulse", 58, 8, w - 196, 28, 14, colors.text, true);
+    text(g, L"Codex Pulse", 58, 8, w - 196, 28, TypeSize::title, colors.text, true);
     auto saved = g.Save();
     g.SetClip(RectF(0, BODY_TOP, w, std::max(1.f, h - BODY_TOP - FOOTER)));
     g.TranslateTransform(0, static_cast<float>(-scrollY));
@@ -716,7 +753,7 @@ void drawButton(const DRAWITEMSTRUCT *d) {
     float iconSize = tile ? 20.f : id >= ID_MINIMIZE ? 14.f : 19.f;
     if (navigation) {
         const wchar_t *labels[] = {L"概览", L"明细", L"设置"};
-        text(g, labels[id - ID_OVERVIEW], 0, 0, w, h - 8, 13,
+        text(g, labels[id - ID_OVERVIEW], 0, 0, w, h - 8, TypeSize::navigation,
              active ? colors.text : hoveredControl == id || focusVisible ? colors.accent : colors.muted,
              active, StringAlignmentCenter);
         if (active || focusVisible)
@@ -726,7 +763,7 @@ void drawButton(const DRAWITEMSTRUCT *d) {
     }
     if (id == ID_THEME || id == ID_INTERVAL)
         text(g, id == ID_THEME ? themeLabel() : std::to_wstring(settings.interval / 60) + L" min", 4, h - 22,
-             w - 8, 20, 10, colors.muted, false, StringAlignmentCenter);
+             w - 8, 20, TypeSize::caption, colors.muted, false, StringAlignmentCenter);
     else if (tile) {
         bool enabled = id == ID_ONLINE   ? settings.online
                        : id == ID_TRAY   ? settings.tray
@@ -994,7 +1031,7 @@ void refresh() {
 }
 std::wstring report() {
     std::wostringstream out;
-    out << L"Codex Pulse 1.0.9\r\n"
+    out << L"Codex Pulse 1.0.10\r\n"
         << (demo ? L"演示数据\r\n" : L"") << sourceLabel() << L"\r\n"
         << L"状态：" << wide(snap.status) << L"\r\n"
         << L"额度采样：" << timestamp(snap.quota.observed) << L"\r\n";
@@ -1176,7 +1213,7 @@ void command(int id) {
     }
     if (id == ID_ABOUT) {
         MessageBoxW(window,
-                    L"Codex Pulse 1.0.9\n\n只读本机登录与用量，仅向 chatgpt.com "
+                    L"Codex Pulse 1.0.10\n\n只读本机登录与用量，仅向 chatgpt.com "
                     L"查询额度。\n无遥测，不上传会话内容。\n\n账户额度与本机 Token "
                     L"统计口径不同。\n缓存输入已包含在输入中，推理输出已包含在输出中。\n独立工具，与 OpenAI "
                     L"无隶属关系。",

@@ -128,6 +128,44 @@ int main() {
     instance = inst;
     demo = true;
     chooseFont();
+    // Measure the actual selected fonts: mixed scripts, dates and numbers must
+    // fit their existing rows at normal and scaled DPI without truncation.
+    struct TypeSample {
+        const wchar_t *value;
+        float size, width, height;
+        bool emphasis;
+    };
+    const TypeSample samples[] = {
+        {L"Codex Pulse", TypeSize::title, 200, 28, true},
+        {L"账户额度", TypeSize::heading, 160, 24, true},
+        {L"本机 Token", TypeSize::heading, 160, 24, true},
+        {L"5 小时额度", TypeSize::body, 180, 20, false},
+        {L"重置 11-16 18:30", TypeSize::caption, 192, 18, false},
+        {L"99.9%", TypeSize::quota, 120, 32, false},
+        {L"203.3 M", TypeSize::metric, 128, 30, false},
+        {L"gpt-5.1-codex", TypeSize::body, 192, 32, false},
+        {L"输入 / Input", TypeSize::body, 160, 28, false},
+        {L"8.45 M", TypeSize::caption, 55, 20, false},
+    };
+    for (int dpi : {96, 120, 144, 192}) {
+        Bitmap bitmap(800, 200, PixelFormat32bppARGB);
+        Graphics g(&bitmap);
+        g.ScaleTransform(dpi / 96.f, dpi / 96.f);
+        for (const auto &sample : samples) {
+            const auto face = textFace(sample.value, sample.emphasis);
+            Font font(face.family, sample.size, face.style, UnitPixel);
+            check(font.GetLastStatus() == Ok, "selected text face supports the requested weight");
+            StringFormat format;
+            format.SetFormatFlags(StringFormatFlagsNoWrap);
+            RectF bounds;
+            INT characters = 0, lines = 0;
+            check(g.MeasureString(sample.value, -1, &font, RectF(0, 0, sample.width, sample.height),
+                                  &format, &bounds, &characters, &lines) == Ok &&
+                      characters == static_cast<INT>(wcslen(sample.value)) && lines == 1 &&
+                      bounds.Width <= sample.width && bounds.Height <= sample.height,
+                  "Chinese, English and numeric text fits without clipping at each DPI");
+        }
+    }
     settings = Settings{};
     settings.theme = 1;
     snap = demoSnapshot();
