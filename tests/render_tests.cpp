@@ -22,82 +22,99 @@ int main() {
     check(percent(37.6) == L"38%", "existing page percentage formatting stays unchanged");
     CLSID png;
     CLSIDFromString(L"{557cf406-1a04-11d3-9a73-0000f81ef32e}", &png);
-    for (int size : {16, 20, 24, 32, 48, 64}) {
-        int previousInk = size * size * 255 + 1, emptyInk = 0, unknownInk = 0;
-        for (int used : {0, 25, 50, 52, 75, 80, 81, 90, 91, 99, 100, -1}) {
-            Bitmap bitmap(size, size, PixelFormat32bppARGB);
-            {
-                Graphics g(&bitmap);
-                drawTrayIcon(g, size, used);
-            }
-            int visible = 0, opaque = 0, alpha = 0, minx = size, maxx = -1, miny = size, maxy = -1;
-            bool correctColor = true;
-            const Color expected = used > 90   ? Color(255, 69, 58)
-                                   : used > 80 ? Color(255, 159, 10)
-                                               : Color(255, 255, 255);
-            for (int y = 0; y < size; ++y)
-                for (int x = 0; x < size; ++x) {
-                    Color c;
-                    bitmap.GetPixel(x, y, &c);
-                    alpha += c.GetA();
-                    if (c.GetA() > 240)
-                        correctColor &= std::abs(int(c.GetR()) - int(expected.GetR())) <= 2 &&
-                                        std::abs(int(c.GetG()) - int(expected.GetG())) <= 2 &&
-                                        std::abs(int(c.GetB()) - int(expected.GetB())) <= 2;
-                    if (c.GetA() > 240)
-                        ++opaque;
-                    if (c.GetA() > 127) {
-                        ++visible;
-                        minx = std::min(minx, x);
-                        maxx = std::max(maxx, x);
-                        miny = std::min(miny, y);
-                        maxy = std::max(maxy, y);
-                    }
-                }
-            check(correctColor && opaque > 0, "outline and fill use the remaining-quota threshold color");
-            check(visible >= size * 1.5, "empty rounded progress bar outline remains readable");
-            check(opaque < size * size * .7, "rounded progress bar has no solid colored tile");
-            check(maxy - miny + 1 >= size * .9 && maxx - minx + 1 >= size * .55 &&
-                      maxx - minx + 1 <= size * .7,
-                  "progress bar keeps full height and a readable vertical silhouette");
-            check(minx >= 0 && maxx < size && miny >= 0 && maxy < size,
-                  "rounded progress bar stays inside icon");
-            if (used >= 0) {
-                // Subpixel rounded arcs can shift up to one opaque pixel of coverage.
-                check(alpha <= previousInk + 255, "remaining charge decreases within raster tolerance");
-                previousInk = alpha;
-                if (used == 100)
-                    emptyInk = alpha;
-            } else
-                unknownInk = alpha;
-            auto name = L"dist/tray-" + std::to_wstring(size) + L"-" + std::to_wstring(used) + L".png";
-            check(bitmap.Save(name.c_str(), &png, nullptr) == Ok, "save actual tray raster");
-        }
-        check(unknownInk > emptyInk, "unavailable data differs from zero remaining quota");
-        auto sample = [&](double used, bool topHalfOnly = false) {
-            Bitmap bitmap(size, size, PixelFormat32bppARGB);
-            { Graphics g(&bitmap); drawTrayIcon(g, size, used); }
-            int alpha = 0;
-            bool binaryAlpha = true;
-            for (int y = 0; y < (topHalfOnly ? size / 2 : size); ++y)
-                for (int x = 0; x < size; ++x) {
-                    Color color;
-                    bitmap.GetPixel(x, y, &color);
-                    alpha += color.GetA();
-                    binaryAlpha &= color.GetA() == 0 || color.GetA() == 255;
-                }
-            return std::make_pair(alpha, binaryAlpha);
+    auto luminance = [](Color color) {
+        auto linear = [](BYTE channel) {
+            const double v = channel / 255.;
+            return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4);
         };
-        const auto empty = sample(100), full = sample(0);
-        check(empty.second && full.second, "outline and full fill have no blurry translucent edges");
-        check(full.first > empty.first, "progress track has usable interior pixels");
-        check(sample(75, true).first == sample(100, true).first,
-              "remaining quota fills from the bottom, leaving the upper half empty at 25 percent");
-        for (double remaining : {.1, .5, 1., 9.9, 10., 19.9, 20., 25., 37.5, 50., 62.3, 75., 99.9}) {
-            const double drawn = static_cast<double>(sample(100 - remaining).first - empty.first) /
-                                 (full.first - empty.first);
-            check(std::abs(drawn - remaining / 100) < .001,
-                  "visible progress area matches exact remaining quota within 0.1 percentage point");
+        return .2126 * linear(color.GetR()) + .7152 * linear(color.GetG()) + .0722 * linear(color.GetB());
+    };
+    for (bool lightTaskbar : {false, true}) {
+        for (int size : {16, 20, 24, 32, 48, 64}) {
+            int previousInk = size * size * 255 + 1, emptyInk = 0, unknownInk = 0;
+            for (int used : {0, 25, 50, 52, 75, 80, 81, 90, 91, 99, 100, -1}) {
+                Bitmap bitmap(size, size, PixelFormat32bppARGB);
+                {
+                    Graphics g(&bitmap);
+                    drawTrayIcon(g, size, used, lightTaskbar);
+                }
+                int visible = 0, opaque = 0, alpha = 0, minx = size, maxx = -1, miny = size, maxy = -1;
+                bool correctColor = true;
+                const Color expected = used > 90   ? (lightTaskbar ? Color(196, 43, 28) : Color(255, 69, 58))
+                                       : used > 80 ? (lightTaskbar ? Color(157, 88, 0) : Color(255, 159, 10))
+                                                   : (lightTaskbar ? Color(32, 32, 32) : Color(255, 255, 255));
+                const double foreground = luminance(expected);
+                const double background = luminance(lightTaskbar ? Color(243, 243, 243) : Color(32, 32, 32));
+                check((std::max(foreground, background) + .05) / (std::min(foreground, background) + .05) >= 3,
+                      "normal, warning, critical and unknown colors contrast with the taskbar");
+                for (int y = 0; y < size; ++y)
+                    for (int x = 0; x < size; ++x) {
+                        Color c;
+                        bitmap.GetPixel(x, y, &c);
+                        alpha += c.GetA();
+                        if (c.GetA() > 240)
+                            correctColor &= std::abs(int(c.GetR()) - int(expected.GetR())) <= 2 &&
+                                            std::abs(int(c.GetG()) - int(expected.GetG())) <= 2 &&
+                                            std::abs(int(c.GetB()) - int(expected.GetB())) <= 2;
+                        if (c.GetA() > 240)
+                            ++opaque;
+                        if (c.GetA() > 127) {
+                            ++visible;
+                            minx = std::min(minx, x);
+                            maxx = std::max(maxx, x);
+                            miny = std::min(miny, y);
+                            maxy = std::max(maxy, y);
+                        }
+                    }
+                check(correctColor && opaque > 0, "outline and fill use the remaining-quota threshold color");
+                check(visible >= size * 1.5, "empty rounded progress bar outline remains readable");
+                check(opaque < size * size * .7, "rounded progress bar has no solid colored tile");
+                check(maxy - miny + 1 >= size * .9 && maxx - minx + 1 >= size * .55 &&
+                          maxx - minx + 1 <= size * .7,
+                      "progress bar keeps full height and a readable vertical silhouette");
+                check(minx >= 0 && maxx < size && miny >= 0 && maxy < size,
+                      "rounded progress bar stays inside icon");
+                if (used >= 0) {
+                    // Subpixel rounded arcs can shift up to one opaque pixel of coverage.
+                    check(alpha <= previousInk + 255, "remaining charge decreases within raster tolerance");
+                    previousInk = alpha;
+                    if (used == 100)
+                        emptyInk = alpha;
+                } else
+                    unknownInk = alpha;
+                auto name = std::wstring(lightTaskbar ? L"dist/tray-light-" : L"dist/tray-dark-") +
+                            std::to_wstring(size) + L"-" + std::to_wstring(used) + L".png";
+                check(bitmap.Save(name.c_str(), &png, nullptr) == Ok, "save actual tray raster");
+            }
+            check(unknownInk > emptyInk, "unavailable data differs from zero remaining quota");
+            auto sample = [&](double used, bool topHalfOnly = false) {
+                Bitmap bitmap(size, size, PixelFormat32bppARGB);
+                {
+                    Graphics g(&bitmap);
+                    drawTrayIcon(g, size, used, lightTaskbar);
+                }
+                int alpha = 0;
+                bool binaryAlpha = true;
+                for (int y = 0; y < (topHalfOnly ? size / 2 : size); ++y)
+                    for (int x = 0; x < size; ++x) {
+                        Color color;
+                        bitmap.GetPixel(x, y, &color);
+                        alpha += color.GetA();
+                        binaryAlpha &= color.GetA() == 0 || color.GetA() == 255;
+                    }
+                return std::make_pair(alpha, binaryAlpha);
+            };
+            const auto empty = sample(100), full = sample(0);
+            check(empty.second && full.second, "outline and full fill have no blurry translucent edges");
+            check(full.first > empty.first, "progress track has usable interior pixels");
+            check(sample(75, true).first == sample(100, true).first,
+                  "remaining quota fills from the bottom, leaving the upper half empty at 25 percent");
+            for (double remaining : {.1, .5, 1., 9.9, 10., 19.9, 20., 25., 37.5, 50., 62.3, 75., 99.9}) {
+                const double drawn = static_cast<double>(sample(100 - remaining).first - empty.first) /
+                                     (full.first - empty.first);
+                check(std::abs(drawn - remaining / 100) < .001,
+                      "visible progress area matches exact remaining quota within 0.1 percentage point");
+            }
         }
     }
     // Exercise the minute-only refresh policy without waiting for real wall-clock boundaries.
@@ -262,6 +279,54 @@ int main() {
     check(trayTooltip.find(L"最少剩余 37.6%") != std::wstring::npos &&
               trayTooltip.find(L"对应额度：" + windowName(snap.quota.windows[1])) != std::wstring::npos,
           "tray tooltip names the limiting quota and its fractional remaining value");
+    // Redirect HKCU to a disposable key; never change the user's actual theme.
+    {
+        const std::wstring sandboxPath = L"Software\\CodexPulseTests\\tray-" +
+                                         std::to_wstring(GetCurrentProcessId());
+        HKEY sandbox = nullptr, personalize = nullptr;
+        check(RegCreateKeyExW(HKEY_CURRENT_USER, sandboxPath.c_str(), 0, nullptr, 0, KEY_ALL_ACCESS,
+                              nullptr, &sandbox, nullptr) == ERROR_SUCCESS,
+              "create isolated theme registry");
+        check(RegOverridePredefKey(HKEY_CURRENT_USER, sandbox) == ERROR_SUCCESS, "isolate theme settings");
+        check(!taskbarUsesLightTheme(), "missing system theme keeps legacy dark-taskbar behavior");
+        check(RegCreateKeyExW(HKEY_CURRENT_USER,
+                              L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                              0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &personalize, nullptr) == ERROR_SUCCESS,
+              "create test personalization settings");
+        auto setTheme = [&](const wchar_t *name, DWORD value) {
+            check(RegSetValueExW(personalize, name, 0, REG_DWORD, reinterpret_cast<const BYTE *>(&value),
+                                 sizeof value) == ERROR_SUCCESS,
+                  "set isolated theme preference");
+        };
+        for (bool lightTaskbar : {true, false, true}) {
+            setTheme(L"SystemUsesLightTheme", lightTaskbar ? 1 : 0);
+            setTheme(L"AppsUseLightTheme", lightTaskbar ? 0 : 1);
+            settings.theme = lightTaskbar ? 2 : 1;
+            check(taskbarUsesLightTheme() == lightTaskbar, "taskbar theme is independent of app mode");
+            const HICON before = trayIcon;
+            const bool wasLight = trayRenderLight;
+            ShowWindow(window, SW_HIDE);
+            SendMessageW(window, WM_SETTINGCHANGE, 0, reinterpret_cast<LPARAM>(L"ImmersiveColorSet"));
+            check(trayAdded && trayRenderLight == lightTaskbar, "hidden tray updates on theme change");
+            if (wasLight != lightTaskbar)
+                check(trayIcon != before, "theme changes invalidate the cached icon at unchanged usage");
+            const HICON current = trayIcon;
+            SendMessageW(window, WM_THEMECHANGED, 0, 0);
+            check(trayIcon == current, "unchanged theme reuses the cached icon");
+        }
+        // The alternate theme notification must also redraw, without a usage refresh.
+        setTheme(L"SystemUsesLightTheme", 0);
+        SendMessageW(window, WM_THEMECHANGED, 0, 0);
+        check(trayAdded && !trayRenderLight, "WM_THEMECHANGED refreshes the taskbar palette");
+        RegCloseKey(personalize);
+        check(RegOverridePredefKey(HKEY_CURRENT_USER, nullptr) == ERROR_SUCCESS, "restore real HKCU");
+        RegCloseKey(sandbox);
+        check(RegDeleteTreeW(HKEY_CURRENT_USER, sandboxPath.c_str()) == ERROR_SUCCESS,
+              "remove isolated theme registry");
+        showWindow();
+        updateColors();
+        updateTray();
+    }
     command(ID_MINIMIZE);
     check(!IsWindowVisible(window), "integrated minimize respects tray preference");
     showWindow();

@@ -2,9 +2,19 @@
 #include "platform.hpp"
 
 namespace pulse {
+inline bool taskbarUsesLightTheme() {
+    // Windows can use different modes for apps and the taskbar. Older Windows
+    // versions without this setting have a dark taskbar.
+    DWORD value = 0, bytes = sizeof value;
+    return RegGetValueW(HKEY_CURRENT_USER,
+                        L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                        L"SystemUsesLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &bytes) == ERROR_SUCCESS &&
+           value != 0;
+}
+
 // Native-size vertical progress track. Bottom-up fill represents the least
 // remaining quota. Three vertical dots distinguish unknown from empty.
-inline void drawTrayIcon(Gdiplus::Graphics &g, int size, double usage) {
+inline void drawTrayIcon(Gdiplus::Graphics &g, int size, double usage, bool lightTaskbar) {
     using namespace Gdiplus;
     g.Clear(Color(0, 0, 0, 0));
     // A native-size tray glyph needs opaque, grid-aligned strokes. Only the
@@ -34,9 +44,10 @@ inline void drawTrayIcon(Gdiplus::Graphics &g, int size, double usage) {
     roundedPath(track, RectF(margin + stroke, stroke, size - 2 * (margin + stroke), size - 2 * stroke),
                 static_cast<float>(std::max(0, radius - stroke)));
     const bool available = std::isfinite(usage) && usage >= 0;
-    const Color tone = available && usage > 90   ? Color(255, 69, 58)
-                       : available && usage > 80 ? Color(255, 159, 10)
-                                    : Color(255, 255, 255);
+    // Darker warning colors keep the thin outline legible on a light taskbar.
+    const Color tone = available && usage > 90   ? (lightTaskbar ? Color(196, 43, 28) : Color(255, 69, 58))
+                       : available && usage > 80 ? (lightTaskbar ? Color(157, 88, 0) : Color(255, 159, 10))
+                                                : (lightTaskbar ? Color(32, 32, 32) : Color(255, 255, 255));
     SolidBrush ink(tone);
     g.FillPath(&ink, &track);
     const int inset = stroke + std::max(1, static_cast<int>(std::lround(scale * .5f)));
@@ -60,10 +71,10 @@ inline void drawTrayIcon(Gdiplus::Graphics &g, int size, double usage) {
         }
     }
 }
-inline HICON createTrayIcon(int size, double usage) {
+inline HICON createTrayIcon(int size, double usage, bool lightTaskbar) {
     Gdiplus::Bitmap bitmap(size, size, PixelFormat32bppARGB);
     Gdiplus::Graphics g(&bitmap);
-    drawTrayIcon(g, size, usage);
+    drawTrayIcon(g, size, usage, lightTaskbar);
     HICON icon = nullptr;
     bitmap.GetHICON(&icon);
     return icon;
